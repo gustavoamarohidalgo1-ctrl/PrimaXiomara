@@ -20,6 +20,7 @@
 /.github/workflows/*
 !/.github/workflows/windows-smoke.yml
 !/.github/workflows/windows-python.yml
+!/.github/workflows/windows-pruebas.yml
 !/test_agencia.py
 !/test_contratos_servitotal.py
 !/test_migracion_servitotal.py

@@ -1,0 +1,88 @@
+name: Pruebas completas de Servitotal en Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arreglo-windows
+
+permissions:
+  contents: read
+
+jobs:
+  python-sistema:
+    name: Pruebas ${{ matrix.os }} Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        python: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    steps:
+      - name: Obtener archivos de Servitotal
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Instalar Python ${{ matrix.python }} de 64 bits
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+
+      - name: Ejecutar todas las pruebas
+        shell: pwsh
+        run: |
+          python -c "import sys, struct, tkinter, sqlite3; print(sys.version, struct.calcsize('P')*8, 'bits', 'Tk', tkinter.TkVersion, 'SQLite', sqlite3.sqlite_version)"
+          python -X faulthandler -m unittest discover -v 2>&1 | Tee-Object -FilePath pruebas.txt
+          exit $LASTEXITCODE
+
+      - name: Conservar resultado
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pruebas-${{ matrix.os }}-py${{ matrix.python }}
+          path: pruebas.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  python-incluido:
+    name: Pruebas ${{ matrix.os }} con el Python del instalador
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - name: Obtener archivos de Servitotal
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Extraer el Python incluido en el instalador
+        shell: pwsh
+        run: |
+          $destino = Join-Path $env:RUNNER_TEMP "instalador"
+          & 7z x -y "-o$destino" instaladores/Servitotal-Windows-x64.exe | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z no pudo extraer el instalador" }
+          $runtime = Get-ChildItem -Path $destino -Recurse -Filter python.exe | Where-Object { $_.Directory.Name -eq 'runtime' } | Select-Object -First 1
+          if (-not $runtime) { throw "No hay runtime\python.exe dentro del instalador" }
+          "PYTHON_INCLUIDO=$($runtime.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $runtime.FullName -c "import sys, struct, tkinter, sqlite3; print(sys.version, struct.calcsize('P')*8, 'bits', 'Tk', tkinter.TkVersion, 'SQLite', sqlite3.sqlite_version)"
+
+      - name: Ejecutar todas las pruebas con el Python incluido
+        shell: pwsh
+        run: |
+          & $env:PYTHON_INCLUIDO -X faulthandler -m unittest discover -v 2>&1 | Tee-Object -FilePath pruebas.txt
+          exit $LASTEXITCODE
+
+      - name: Conservar resultado
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pruebas-${{ matrix.os }}-incluido
+          path: pruebas.txt
+          if-no-files-found: warn
+          retention-days: 14
