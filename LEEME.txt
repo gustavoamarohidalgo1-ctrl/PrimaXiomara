@@ -2,6 +2,15 @@ AGENCIA DE EMPLEOS S.T SERVITOTAL - Windows y Mac
 ================================================
 Version de distribucion: 1.7.1.
 
+APERTURA RAPIDA EN WINDOWS CON ZIP
+  Servitotal-1.7.1-Windows-portable.zip incluye Python y todos los recursos.
+  Clic derecho sobre el ZIP > Extraer todo. Abra la carpeta Servitotal-1.7.1
+  extraida y haga doble clic en Abrir Servitotal.bat. Conserve toda la carpeta.
+  Los datos se guardan en %LOCALAPPDATA%\Servitotal, igual que con el instalador.
+  Guarde su trabajo y cierre cualquier Servitotal abierto antes de usarla.
+  Si no abre, Diagnosticar Servitotal.bat muestra los errores en una consola.
+  Windows o un antivirus todavia pueden bloquearla; no requiere desactivarlos.
+
 TEMA OSCURO
   Fondos oscuros con detalles rosa y fucsia de Servitotal.
   El logo original y los colores de los botones se conservan.
@@ -120,6 +129,8 @@ VOLVER A GENERAR DISTRIBUCIONES
                                 con makensis, sevenzip y msitools.
     crear_iconos.sh              Convierte el logo original a formatos de
                                 icono usando herramientas de macOS.
+    crear_portable_windows.py    Crea el ZIP a partir del EXE 1.7.1 verificado.
+                                Necesita Python y 7-Zip (7zz o 7z).
   Los scripts empacan el codigo actual y los recursos de esta carpeta.
   No incluyen la base de datos, contratos, respaldos ni datos personales.
   Si cambia el codigo, vuelva a generar los paquetes antes de distribuirlos.

@@ -15,7 +15,21 @@ Los instaladores incluyen Python; no hace falta instalarlo por separado.
 
 En GitHub, abra el archivo correspondiente y use **Download raw file** para descargarlo. En Mac, abra el DMG y arrastre Servitotal a Aplicaciones. Consulte [LEEME.txt](LEEME.txt) para instalación y uso.
 
-Las huellas de los dos paquetes están en [SHA256SUMS.txt](instaladores/SHA256SUMS.txt).
+Las huellas de los paquetes están en [SHA256SUMS.txt](instaladores/SHA256SUMS.txt).
+
+### Apertura rápida en Windows mediante ZIP
+
+[Descargar Servitotal 1.7.1 con Python incluido](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.7.1-Windows-portable.zip).
+
+1. Guarde el ZIP y seleccione **clic derecho → Extraer todo**.
+2. Abra la carpeta extraída `Servitotal-1.7.1`.
+3. Haga doble clic en **Abrir Servitotal.bat**.
+
+Conserve completa la carpeta extraída; puede guardarla en Documentos. Los datos se guardan en `%LOCALAPPDATA%\Servitotal`, igual que con el instalador. Guarde su trabajo y cierre cualquier Servitotal abierto antes de usar esta versión. Para datos de versiones antiguas que estaban junto al programa, conserve la carpeta anterior y transfiera un respaldo desde el panel de respaldos.
+
+Si no abre, **Diagnosticar Servitotal.bat** permite ver errores en pantalla; los errores que alcanzan el lanzador también se guardan en `%LOCALAPPDATA%\Servitotal\errores_inicio.log`. Windows o un antivirus todavía pueden bloquear este formato; no requiere desactivar las protecciones.
+
+La [prueba del ZIP en Windows Server 2022](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36641819535) abrió la interfaz mediante el BAT real, comprobó datos vacíos fuera de la carpeta extraída y validó las firmas de Python Software Foundation en `python.exe` y `pythonw.exe`. No reproduce la configuración del equipo receptor.
 
 ### Aviso «Windows protegió su PC»
 
