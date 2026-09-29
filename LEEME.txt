@@ -34,6 +34,14 @@ INSTALADORES
   al desarrollador, use clic derecho > Abrir o la opcion "Abrir igualmente"
   de Ajustes del Sistema > Privacidad y seguridad.
   Windows: abra el instalador; instala para el usuario actual sin administrador.
+  Si aparece "Windows protegio su PC" de SmartScreen: el instalador actual
+  todavia no tiene firma de editor. Si descargo Servitotal-Windows-x64.exe
+  del repositorio oficial y confia en su procedencia, pulse "Mas informacion",
+  compruebe el nombre y pulse "Ejecutar de todas formas".
+  Repositorio: https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara
+  No hace falta desactivar Defender ni agregar exclusiones. Si no aparece
+  ese boton o se detecta un virus concreto, conserve el texto para revisar
+  ese caso antes de continuar. El aviso no certifica la seguridad del archivo.
   Los datos se guardan aparte del programa:
     Mac:      ~/Library/Application Support/Servitotal
     Windows:  %LOCALAPPDATA%\Servitotal

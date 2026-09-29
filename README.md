@@ -17,6 +17,17 @@ En GitHub, abra el archivo correspondiente y use **Download raw file** para desc
 
 Las huellas de los dos paquetes están en [SHA256SUMS.txt](instaladores/SHA256SUMS.txt).
 
+### Aviso «Windows protegió su PC»
+
+El instalador actual no tiene firma Authenticode de editor. SmartScreen puede advertir que la aplicación es desconocida al evaluar su firma y reputación. Este aviso por sí solo no demuestra un fallo de la aplicación ni certifica la seguridad del archivo. [Explicación de Microsoft](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+
+Si descargó `Servitotal-Windows-x64.exe` de [este repositorio oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara) y confía en su procedencia:
+
+1. En el aviso, pulse **Más información**.
+2. Compruebe el nombre del archivo y pulse **Ejecutar de todas formas** para iniciar la instalación.
+
+Son los pasos que documenta [Microsoft para aplicaciones nuevas](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/publish-first-app#step-6-handle-smartscreen-for-new-apps). No hace falta desactivar Microsoft Defender ni añadir una exclusión. Si falta ese botón o aparece una detección concreta de virus, conserve el texto del aviso para revisar ese caso antes de continuar.
+
 ## Ejecutar desde el código
 
 Requiere Python con Tk 8.6 o posterior y SQLite. Se comprobó con Python 3.12 y 3.14. La aplicación utiliza la biblioteca estándar de Python.
