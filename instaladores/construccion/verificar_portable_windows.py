@@ -51,7 +51,7 @@ def main():
             ruta_python = str(carpeta / "runtime/python.exe").replace("'", "''")
             ruta_pythonw = str(carpeta / "runtime/pythonw.exe").replace("'", "''")
             firmas = subprocess.run([
-                "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command",
+                "pwsh.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command",
                 "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; "
                 "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
                 f"@('{ruta_python}','{ruta_pythonw}') | ForEach-Object {{ "
