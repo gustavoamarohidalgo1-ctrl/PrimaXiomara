@@ -39,6 +39,8 @@ Extraiga todo el ZIP y abra **Abrir Servitotal.pyw**. Mantenga completa la carpe
 
 El ZIP contiene ocho archivos de código, recursos y ayuda; no incluye registros reales ni un EXE propio. **Diagnosticar Servitotal.py** muestra los errores en consola y el lanzador guarda los errores de inicio en la carpeta de datos. La firma de Python no firma Servitotal: las protecciones de Windows o un antivirus todavía pueden intervenir. Cambiar a MSI por sí solo tampoco resuelve la reputación de un editor; consulte la [explicación de Microsoft sobre SmartScreen](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 
+La [prueba nativa con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36643469408) verificó la firma válida del instalador de Python 3.14.7, abrió Servitotal dos veces con Tk 9.0.4 y conservó una marca ficticia en la misma base externa al código. Usó Windows Server 2022 y un perfil temporal con espacios y «Ñ»; no reproduce las asociaciones de archivos, SmartScreen ni el antivirus del equipo receptor.
+
 ### Aviso «Windows protegió su PC»
 
 El instalador actual no tiene firma Authenticode de editor. SmartScreen puede advertir que la aplicación es desconocida al evaluar su firma y reputación. Este aviso por sí solo no demuestra un fallo de la aplicación ni certifica la seguridad del archivo. [Explicación de Microsoft](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
