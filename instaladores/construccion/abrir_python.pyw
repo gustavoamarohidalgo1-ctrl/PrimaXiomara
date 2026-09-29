@@ -1,0 +1,53 @@
+"""Abre Servitotal con Python oficial y la carpeta de datos de la instalación."""
+from pathlib import Path
+import ctypes
+from datetime import datetime
+import os
+import sys
+import traceback
+
+
+def main():
+    datos = None
+    try:
+        if sys.platform != "win32":
+            raise RuntimeError("Este acceso corresponde a Servitotal para Windows.")
+        local = os.environ.get("LOCALAPPDATA")
+        if not local or not Path(local).is_absolute():
+            raise RuntimeError("Windows no indicó una carpeta LOCALAPPDATA válida para este usuario.")
+        datos = Path(local) / "Servitotal"
+        # La fuente calcula sus rutas al importarse: fijar los datos primero.
+        sys.argv = [str(Path(__file__).resolve()), "--datos", str(datos)]
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "app"))
+        for nombre in ("TCL_LIBRARY", "TK_LIBRARY"):
+            os.environ.pop(nombre, None)
+        import agencia
+        agencia.main()
+        return 0
+    except BaseException as error:
+        if isinstance(error, SystemExit) and error.code in (None, 0):
+            return 0
+        detalle = traceback.format_exc()
+        mensaje = "No se pudo abrir Servitotal.\n\n"
+        if datos is not None:
+            registro = datos / "errores_inicio.log"
+            try:
+                datos.mkdir(parents=True, exist_ok=True)
+                with registro.open("a", encoding="utf-8") as archivo:
+                    archivo.write(f"\n{datetime.now().isoformat()}\n{detalle}")
+                mensaje += f"El detalle se guardó en:\n{registro}\n\n"
+            except OSError:
+                mensaje += "No se pudo guardar el detalle del error.\n\n"
+        mensaje += "Instale Python completo con tcl/tk y extraiga todo el ZIP.\n"
+        mensaje += "Si sigue fallando, abra Diagnosticar Servitotal.py con Python para ver el error."
+        if sys.stderr is not None:
+            sys.stderr.write(detalle)
+        try:
+            ctypes.windll.user32.MessageBoxW(None, mensaje, "Servitotal — No se pudo abrir", 0x10)
+        except Exception:
+            pass
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

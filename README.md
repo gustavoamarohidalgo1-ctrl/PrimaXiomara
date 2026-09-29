@@ -31,6 +31,14 @@ Si no abre, **Diagnosticar Servitotal.bat** permite ver errores en pantalla; los
 
 La [prueba del ZIP en Windows Server 2022](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36642034228) abrió la interfaz mediante el BAT real, comprobó datos vacíos fuera de la carpeta extraída y validó las firmas de Python Software Foundation en `python.exe` y `pythonw.exe`. No reproduce la configuración del equipo receptor.
 
+### Abrir con Python oficial instalado por separado
+
+Como alternativa al instalador propio, [descargue el paquete de código de Servitotal](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.7.1-Windows-Python.zip) e instale **Python 3.14.7 completo de 64 bits** desde [python.org](https://www.python.org/downloads/release/python-3147/). Elija «Windows installer (64-bit)» y mantenga las opciones «tcl/tk and IDLE», lanzador Python y asociación de archivos. El paquete embebido de Python no incluye la interfaz Tk que necesita el programa.
+
+Extraiga todo el ZIP y abra **Abrir Servitotal.pyw**. Mantenga completa la carpeta extraída. Este acceso utiliza `%LOCALAPPDATA%\Servitotal`, igual que la instalación existente; cierre cualquier Servitotal abierto antes de usarlo. Si antes guardaba datos junto al programa, conserve esa carpeta y utilice su respaldo desde el panel de la aplicación.
+
+El ZIP contiene ocho archivos de código, recursos y ayuda; no incluye registros reales ni un EXE propio. **Diagnosticar Servitotal.py** muestra los errores en consola y el lanzador guarda los errores de inicio en la carpeta de datos. La firma de Python no firma Servitotal: las protecciones de Windows o un antivirus todavía pueden intervenir. Cambiar a MSI por sí solo tampoco resuelve la reputación de un editor; consulte la [explicación de Microsoft sobre SmartScreen](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+
 ### Aviso «Windows protegió su PC»
 
 El instalador actual no tiene firma Authenticode de editor. SmartScreen puede advertir que la aplicación es desconocida al evaluar su firma y reputación. Este aviso por sí solo no demuestra un fallo de la aplicación ni certifica la seguridad del archivo. [Explicación de Microsoft](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).

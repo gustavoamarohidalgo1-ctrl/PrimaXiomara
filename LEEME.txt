@@ -11,6 +11,17 @@ APERTURA RAPIDA EN WINDOWS CON ZIP
   Si no abre, Diagnosticar Servitotal.bat muestra los errores en una consola.
   Windows o un antivirus todavia pueden bloquearla; no requiere desactivarlos.
 
+ABRIR CON PYTHON OFICIAL INSTALADO POR SEPARADO
+  Servitotal-1.7.1-Windows-Python.zip contiene solo codigo, recursos y ayuda.
+  Instale Python 3.14.7 completo: Windows installer (64-bit) de
+  https://www.python.org/downloads/release/python-3147/
+  Mantenga tcl/tk and IDLE, el lanzador y la asociacion de archivos con Python.
+  Extraiga todo el ZIP y abra Abrir Servitotal.pyw. No abra app/agencia.py.
+  Este acceso usa %LOCALAPPDATA%\Servitotal, igual que la version instalada.
+  Diagnosticar Servitotal.py muestra los errores si se ejecuta con Python.
+  Python tiene su propia firma; esa firma no firma el codigo de Servitotal.
+  Las protecciones todavia pueden intervenir. Mantengalas activas.
+
 TEMA OSCURO
   Fondos oscuros con detalles rosa y fucsia de Servitotal.
   El logo original y los colores de los botones se conservan.
