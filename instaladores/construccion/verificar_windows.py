@@ -94,6 +94,8 @@ class Windows:
         self.kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         self.kernel.OpenProcess.restype = wintypes.HANDLE
         self.kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self.kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self.kernel.WaitForSingleObject.restype = wintypes.DWORD
 
         class Entrada(ctypes.Structure):
             _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
@@ -164,11 +166,13 @@ class Windows:
     def cerrar_prueba(self, proceso):
         propios = self.descendientes(proceso.pid)
         for pid in propios - {proceso.pid}:
-            handle = self.kernel.OpenProcess(1, False, pid)
+            handle = self.kernel.OpenProcess(0x00100001, False, pid)
             if handle:
                 try:
-                    if not self.kernel.TerminateProcess(handle, 0):
+                    if not self.kernel.TerminateProcess(handle, 0) and self.kernel.WaitForSingleObject(handle, 0) != 0:
                         raise ctypes.WinError(ctypes.get_last_error())
+                    if self.kernel.WaitForSingleObject(handle, 5000) != 0:
+                        raise TimeoutError("El proceso de prueba no terminó de liberar sus archivos")
                 finally:
                     self.kernel.CloseHandle(handle)
         if proceso.poll() is None:

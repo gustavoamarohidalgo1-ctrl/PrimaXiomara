@@ -101,6 +101,7 @@ def main():
             proceso = None
             informe["ok"] = True
     except BaseException:
+        informe["ok"] = False
         informe["error"] = traceback.format_exc()
     finally:
         if proceso is not None and windows is not None:
