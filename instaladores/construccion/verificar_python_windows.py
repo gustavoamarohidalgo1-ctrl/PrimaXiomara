@@ -130,10 +130,23 @@ def instalar_python(instalador, destino, windows, evidencia):
     finally:
         windows.cerrar_prueba(proceso)
         evidencia["proceso_instalador_cerrado"] = True
-    piezas = ("python.exe", "pythonw.exe", "python314.dll", "DLLs/_tkinter.pyd", "tcl/tcl8.6/init.tcl")
+    piezas = ("python.exe", "pythonw.exe", "python314.dll", "DLLs/_tkinter.pyd")
     evidencia["archivos"] = {ruta: (destino / ruta).is_file() for ruta in piezas}
     if not all(evidencia["archivos"].values()):
         raise RuntimeError("El Python instalado no contiene el runtime completo con Tcl/Tk")
+    # Los instaladores actuales pueden incluir Tcl/Tk 9; comprobar la biblioteca real.
+    comprobacion = subprocess.run([str(destino / "python.exe"), "-I", "-c",
+        "import json, sys, tkinter, sqlite3; r=tkinter.Tk(); "
+        "print(json.dumps({'python':sys.version,'tcl':r.tk.call('info','patchlevel'),"
+        "'tk':r.tk.call('package','require','Tk'),'sqlite':sqlite3.sqlite_version})); r.destroy()"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    evidencia["comprobacion_runtime"] = {"codigo": comprobacion.returncode,
+                                       "stdout": comprobacion.stdout, "stderr": comprobacion.stderr}
+    if comprobacion.returncode:
+        raise RuntimeError("El Python oficial no pudo abrir Tk: " + comprobacion.stderr)
+    evidencia["runtime"] = json.loads(comprobacion.stdout)
+    if tuple(int(parte) for parte in evidencia["runtime"]["tk"].split(".")[:2]) < (8, 6):
+        raise RuntimeError("El programa necesita Tk 8.6 o posterior")
 
 
 def abrir_programa(pythonw, carpeta, entorno, windows, evidencia):
