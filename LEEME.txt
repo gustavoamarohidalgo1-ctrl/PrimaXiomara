@@ -1,0 +1,140 @@
+AGENCIA DE EMPLEOS S.T SERVITOTAL - Windows y Mac
+================================================
+Version de distribucion: 1.7.1.
+
+TEMA OSCURO
+  Fondos oscuros con detalles rosa y fucsia de Servitotal.
+  El logo original y los colores de los botones se conservan.
+
+ABRIR EN ESTA CARPETA
+  Windows: doble clic en Iniciar.bat. Necesita Python 3 con tkinter y sqlite3.
+  Si falta Python, descarguelo desde https://www.python.org/downloads/
+  y marque "Add Python to PATH" y "tcl/tk and IDLE".
+  Mac: doble clic en Crear_App_Mac.command para crear Servitotal.app.
+  Este lanzador usa el Python instalado en este equipo (Tk 8.6 o posterior).
+  Su minimo de macOS depende de ese Python y se muestra al crearlo.
+  Deje Servitotal.app junto a agencia.py y contratos_servitotal.py.
+  F11 activa pantalla completa; Esc permite salir de ella.
+
+EXE PORTATIL PARA WINDOWS
+  Crear_EXE.bat genera Servitotal.exe con su propio logo e iconos incluidos.
+  Necesita internet para instalar PyInstaller en un entorno temporal aislado.
+  Si falla una etapa, se detiene y muestra el error; no copia un EXE anterior.
+  Conserve la base agencia.db junto al EXE para seguir usando los datos actuales.
+  Si no hay base junto al EXE, los datos nuevos se guardan en la carpeta
+  del usuario Servitotal indicada mas abajo.
+
+INSTALADORES
+  instaladores/Servitotal-Mac-arm64.dmg       Mac con chip Apple M1 o posterior.
+  instaladores/Servitotal-Windows-x64.exe     Windows 10 u 11 de 64 bits.
+  Estos paquetes incluyen Python: el equipo receptor no necesita instalarlo.
+  El minimo de macOS se calcula a partir de los binarios incluidos y aparece
+  en las instrucciones del DMG; no se promete compatibilidad inferior.
+  Mac: abra el DMG y arrastre Servitotal a Aplicaciones. Si macOS no verifica
+  al desarrollador, use clic derecho > Abrir o la opcion "Abrir igualmente"
+  de Ajustes del Sistema > Privacidad y seguridad.
+  Windows: abra el instalador; instala para el usuario actual sin administrador.
+  Los datos se guardan aparte del programa:
+    Mac:      ~/Library/Application Support/Servitotal
+    Windows:  %LOCALAPPDATA%\Servitotal
+  Actualizar la aplicacion conserva esa carpeta. Al desinstalar en Windows,
+  por defecto se conservan los datos; borrarlos requiere elegirlo expresamente.
+  Los instaladores y sus datos tienen identidad propia para coexistir con
+  el programa de Servicio Exclusivo.
+  Para trasladar datos desde la carpeta original a una instalacion: haga una
+  copia con el programa original, abra el nuevo y restaure esa copia desde
+  el panel de respaldos. No copie una base con el programa abierto.
+
+SECCIONES Y FLUJO
+  Clientes: pedido, datos personales, sueldo, horario, servicio y garantia.
+  Trabajadoras: perfil, documentos, especialidad y disponibilidad.
+  Los campos de servicio y especialidad admiten escribir y sugieren opciones.
+  Areas: cree o elimine areas propias. Solo se elimina un area sin personas
+  registradas en ella. Seleccione cliente y trabajadora y pulse Asignar.
+  Revise las condiciones antes de confirmar; despues puede abrir el contrato,
+  firmarlo, imprimirlo o deshacer la asignacion desde Ver asignaciones.
+  Comisiones: admite un monto o un porcentaje del sueldo; al cambiar uno se
+  calcula su equivalente. El 50 % es una propuesta inicial editable de
+  Servitotal, no una comision obligatoria. Elija lo pactado en cada contrato.
+  Puede registrar el pago y ver lo cobrado, lo pendiente y lo cobrado este mes.
+  Ganancias: resumen de comisiones cobradas y pendientes, ingresos por area
+  y ultimos pagos. No calcula ganancia neta porque no registra gastos.
+  Garantias: la propuesta de Servitotal es 30 dias; se puede acordar otro
+  plazo en dias o meses, o sin garantia. El contrato imprime el plazo elegido.
+  Las pestanas separan pendientes, cerradas y sin garantia. Al solicitar
+  reemplazo, el pedido vuelve a pendiente y la siguiente asignacion conserva
+  la garantia pactada sin cobrar otra comision.
+
+CONTRATOS Y FIRMAS
+  La primera hoja conserva el contrato de servicio de Servitotal, con sus
+  datos y condiciones propias; la segunda agrega el contrato de trabajo.
+  Ambas usan las condiciones y firmas de la misma asignacion.
+  Cada persona puede dibujar su firma en pantalla o usar Firmar con nombre
+  en su recuadro, cuando esa persona acepte hacerlo de esa manera.
+  Son firmas guardadas en el documento; no firmas digitales certificadas.
+  Imprima o guarde el documento desde el navegador que lo abre.
+
+GUARDADO Y RESPALDOS
+  Pulse Guardar al completar los datos de una ficha. Los registros nuevos
+  incompletos pueden conservarse como borradores y recuperarse con Nuevo.
+  El programa genera respaldos al abrir, periodicamente si hubo cambios,
+  al cerrar y antes de operaciones de borrado o restauracion.
+  Ademas guarda copias externas y archivos CSV en:
+    Documentos/Respaldos Servitotal
+  Puede elegir otra carpeta, por ejemplo un USB o una carpeta sincronizada.
+  Cmd+Shift+B en Mac o Ctrl+Shift+B en Windows abre el panel para hacer una
+  copia, restaurarla, abrir las carpetas o configurar una carpeta adicional.
+  Conviene conservar tambien una copia en otro dispositivo.
+
+ARCHIVOS PROPIOS
+  agencia.py                 Aplicacion.
+  contratos_servitotal.py     Plantilla propia del contrato de servicio.
+  agencia.db                 Base de datos; no sustituir por la de otra agencia.
+  logo.png                   Logo original del menu lateral de Servitotal.
+  icono.png / .ico / .icns    El mismo logo en formatos de icono.
+  contratos/                 Contratos HTML generados.
+  respaldos/                 Copias locales de seguridad.
+  errores.log                Registro de errores, si se producen.
+  respaldo_antes_actualizacion_20260929/  Copia del proyecto anterior.
+
+VOLVER A GENERAR DISTRIBUCIONES
+  Los scripts estan en instaladores/construccion:
+    crear_instalador_mac.sh      Genera el DMG en un Mac Apple Silicon.
+    crear_instalador_windows.sh  Genera el instalador Windows desde un Mac
+                                con makensis, sevenzip y msitools.
+    crear_iconos.sh              Convierte el logo original a formatos de
+                                icono usando herramientas de macOS.
+  Los scripts empacan el codigo actual y los recursos de esta carpeta.
+  No incluyen la base de datos, contratos, respaldos ni datos personales.
+  Si cambia el codigo, vuelva a generar los paquetes antes de distribuirlos.
+
+AJUSTES EN agencia.py
+  Nombre y eslogan, carpeta propia de datos, datos legales de Servitotal,
+  moneda, propuesta de comision y plazo inicial de garantia.
+  AGENCIA_CARPETA_DATOS debe seguir siendo Servitotal para mantener separados
+  los datos y respaldos de las otras agencias.
+
+ACTUALIZAR CON SEGURIDAD (VERSION 1.7.1)
+  Guarde su trabajo y cierre el programa antes de actualizarlo en Mac o Windows.
+  Windows comprueba si los archivos estan en uso y bloquea la actualizacion o
+  desinstalacion si encuentra una instancia abierta o no puede verificarlo.
+  Dos instaladores de la misma agencia no pueden ejecutarse a la vez.
+  Los archivos nuevos se preparan por separado antes de reemplazar la version
+  anterior. Si el reemplazo falla, se intenta recuperar esa version. Si Windows
+  tambien impide recuperarla, el mensaje indica donde quedaron los originales.
+  La carpeta normal de datos se conserva; al desinstalar, borrarla sigue siendo
+  una opcion explicita y la respuesta predeterminada es No.
+  Si hay agencia.db, contratos, respaldos, configuracion.json, borradores.json
+  o errores.log dentro de app/runtime, se detiene el cambio para conservarlos.
+  Haga una copia y cambie esa ubicacion antes de actualizar o desinstalar.
+
+CONSERVACION DE COPIAS Y CONTRATOS
+  Una restauracion comprueba y actualiza una copia temporal antes de sustituir
+  la base abierta. Conserva la base anterior si falla esa preparacion y guarda
+  un resguardo si no puede completar la recuperacion.
+  La misma base abierta, incluso con otro nombre o acceso directo, no se puede
+  elegir como fuente de restauracion.
+  Al actualizar, los contratos firmados anteriores se conservan como documento
+  cuando las fichas relacionadas todavia existen. Corregir una ficha despues
+  no reescribe ese documento. Un contrato sin sus personas conserva sus datos
+  existentes y no inventa informacion para reconstruir un pasado desconocido.
