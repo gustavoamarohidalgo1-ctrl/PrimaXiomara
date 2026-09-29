@@ -28,6 +28,8 @@ Si descargó `Servitotal-Windows-x64.exe` de [este repositorio oficial](https://
 
 Son los pasos que documenta [Microsoft para aplicaciones nuevas](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/publish-first-app#step-6-handle-smartscreen-for-new-apps). No hace falta desactivar Microsoft Defender ni añadir una exclusión. Si falta ese botón o aparece una detección concreta de virus, conserve el texto del aviso para revisar ese caso antes de continuar.
 
+Si el EXE no muestra ninguna ventana, abra el archivo desde **Explorador de archivos → Descargas**. En **Propiedades**, el instalador 1.7.1 completo ocupa **12.116.299 bytes**; las huellas de integridad están en `SHA256SUMS.txt`. Si la descarga quedó incompleta, vuelva a descargar el archivo completo. Revise también **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** y conserve el texto de cualquier bloqueo reciente para diagnosticarlo.
+
 ## Ejecutar desde el código
 
 Requiere Python con Tk 8.6 o posterior y SQLite. Se comprobó con Python 3.12 y 3.14. La aplicación utiliza la biblioteca estándar de Python.
@@ -61,7 +63,11 @@ python -m unittest discover -v
 
 Las pruebas del constructor de Windows requieren `makensis`. Las pruebas de recreación del lanzador utilizan las herramientas de macOS.
 
-Las mejoras de 1.7.1 incluyen comprobación de cambios simultáneos, conservación del ejemplar firmado, protección del importe ya cobrado, redondeo decimal y preparación verificada de copias y restauraciones. Los instaladores de Mac se probaron con arranques nuevos y actualización desde datos ficticios de 1.7.0. Los instaladores Windows se compilaron e inspeccionaron; su ejecución en un equipo Windows sigue pendiente.
+Las mejoras de 1.7.1 incluyen comprobación de cambios simultáneos, conservación del ejemplar firmado, protección del importe ya cobrado, redondeo decimal y preparación verificada de copias y restauraciones. Los instaladores de Mac se probaron con arranques nuevos y actualización desde datos ficticios de 1.7.0.
+
+El mismo EXE 1.7.1 entregado y publicado pasó una [comprobación nativa en Windows Server 2022](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36640611573): apareció el asistente con «Siguiente», completó la instalación y abrió la interfaz de Servitotal con su Python, Tk y SQLite incluidos. Usó una base temporal vacía y no registró errores de callbacks. Esta prueba no reproduce SmartScreen, el antivirus ni la configuración del equipo de una usuaria de Windows 10 u 11.
+
+La comprobación se puede repetir desde [GitHub Actions](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/workflows/windows-smoke.yml). El script [verificar_windows.py](instaladores/construccion/verificar_windows.py) instala en una carpeta temporal y modifica accesos y registro del usuario de prueba; está destinado a un Windows de pruebas efímero.
 
 ## Construir instaladores
 

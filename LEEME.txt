@@ -42,6 +42,14 @@ INSTALADORES
   No hace falta desactivar Defender ni agregar exclusiones. Si no aparece
   ese boton o se detecta un virus concreto, conserve el texto para revisar
   ese caso antes de continuar. El aviso no certifica la seguridad del archivo.
+  Si no aparece ninguna ventana: abra el EXE desde Explorador > Descargas.
+  En Propiedades, el instalador 1.7.1 completo ocupa 12.116.299 bytes.
+  Si la descarga quedo incompleta, descargue nuevamente el archivo completo.
+  Revise Seguridad de Windows > Proteccion contra virus y amenazas >
+  Historial de proteccion; conserve el texto de cualquier bloqueo reciente.
+  Ese mismo EXE paso la prueba de asistente, instalacion y apertura de la
+  interfaz en Windows Server 2022 con datos temporales. Esa prueba no reproduce
+  SmartScreen, antivirus ni la configuracion del equipo receptor.
   Los datos se guardan aparte del programa:
     Mac:      ~/Library/Application Support/Servitotal
     Windows:  %LOCALAPPDATA%\Servitotal
