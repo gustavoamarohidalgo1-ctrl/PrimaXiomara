@@ -14,6 +14,11 @@
 !/Iniciar.bat
 !/Crear_EXE.bat
 !/Crear_App_Mac.command
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/windows-smoke.yml
 !/test_agencia.py
 !/test_contratos_servitotal.py
 !/test_migracion_servitotal.py
@@ -40,6 +45,7 @@
 !/instaladores/construccion/minimo_macos.py
 !/instaladores/construccion/iniciar.pyw
 !/instaladores/construccion/version_windows.txt
+!/instaladores/construccion/verificar_windows.py
 
 # Exclusiones explícitas: datos privados y archivos generados.
 analisis/

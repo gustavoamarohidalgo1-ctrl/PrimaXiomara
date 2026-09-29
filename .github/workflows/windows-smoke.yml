@@ -1,0 +1,30 @@
+name: Comprobar Servitotal en Windows
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  instalador:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Obtener archivos de Servitotal
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Comprobar asistente, instalacion y arranque
+        shell: pwsh
+        run: python instaladores/construccion/verificar_windows.py --exe instaladores/Servitotal-Windows-x64.exe --evidencia evidencia-windows.json
+
+      - name: Conservar evidencia de la prueba
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evidencia-servitotal-windows
+          path: evidencia-windows.json
+          if-no-files-found: warn
+          retention-days: 14
