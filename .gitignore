@@ -34,6 +34,7 @@
 /instaladores/*
 !/instaladores/Servitotal-Windows-x64.exe
 !/instaladores/Servitotal-Mac-arm64.dmg
+!/instaladores/Servitotal-1.7.1-Windows-portable.zip
 !/instaladores/SHA256SUMS.txt
 !/instaladores/construccion/
 /instaladores/construccion/*
@@ -46,6 +47,9 @@
 !/instaladores/construccion/iniciar.pyw
 !/instaladores/construccion/version_windows.txt
 !/instaladores/construccion/verificar_windows.py
+!/instaladores/construccion/verificar_portable_windows.py
+!/instaladores/construccion/crear_portable_windows.py
+!/instaladores/construccion/abrir_portable.pyw
 
 # Exclusiones explícitas: datos privados y archivos generados.
 analisis/

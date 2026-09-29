@@ -28,3 +28,16 @@ jobs:
           path: evidencia-windows.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Comprobar ZIP y lanzador portable
+        shell: pwsh
+        run: python instaladores/construccion/verificar_portable_windows.py --zip instaladores/Servitotal-1.7.1-Windows-portable.zip --evidencia evidencia-portable-windows.json
+
+      - name: Conservar evidencia del ZIP
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evidencia-servitotal-portable-windows
+          path: evidencia-portable-windows.json
+          if-no-files-found: warn
+          retention-days: 14

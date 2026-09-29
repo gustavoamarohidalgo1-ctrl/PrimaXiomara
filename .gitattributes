@@ -12,3 +12,4 @@
 *.icns binary
 *.exe binary
 *.dmg binary
+*.zip binary
