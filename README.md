@@ -29,7 +29,7 @@ Conserve completa la carpeta extraída; puede guardarla en Documentos. Los datos
 
 Si no abre, **Diagnosticar Servitotal.bat** permite ver errores en pantalla; los errores que alcanzan el lanzador también se guardan en `%LOCALAPPDATA%\Servitotal\errores_inicio.log`. Windows o un antivirus todavía pueden bloquear este formato; no requiere desactivar las protecciones.
 
-La [prueba del ZIP en Windows Server 2022](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36641819535) abrió la interfaz mediante el BAT real, comprobó datos vacíos fuera de la carpeta extraída y validó las firmas de Python Software Foundation en `python.exe` y `pythonw.exe`. No reproduce la configuración del equipo receptor.
+La [prueba del ZIP en Windows Server 2022](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36642034228) abrió la interfaz mediante el BAT real, comprobó datos vacíos fuera de la carpeta extraída y validó las firmas de Python Software Foundation en `python.exe` y `pythonw.exe`. No reproduce la configuración del equipo receptor.
 
 ### Aviso «Windows protegió su PC»
 
