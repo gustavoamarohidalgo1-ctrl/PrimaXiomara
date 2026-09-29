@@ -1,4 +1,5 @@
 """Exportaciones CSV completas y recuperación ante errores, con datos ficticios."""
+from contextlib import closing
 import csv
 import hashlib
 import json
@@ -183,7 +184,7 @@ class FiabilidadExportacionTest(unittest.TestCase):
         self.assertIn(str(resguardo), str(capturado.exception))
         for nombre, datos in self.originales.items():
             self.assertEqual((resguardo / nombre).read_bytes(), datos)
-        manifest = json.loads((resguardo / "restauracion.json").read_text())
+        manifest = json.loads((resguardo / "restauracion.json").read_text(encoding="utf-8"))
         self.assertEqual(set(manifest["anteriores"]), set(self.NOMBRES))
         self.assertEqual(manifest["ausentes"], [])
         self.assertEqual((self.destino / "Notas propias.txt").read_bytes(), b"Documento ajeno a la exportacion")
@@ -204,7 +205,7 @@ class FiabilidadExportacionTest(unittest.TestCase):
             with self.assertRaises(OSError) as capturado:
                 self.exportar()
         resguardo = Path(capturado.exception._resguardo_csv)
-        manifest = json.loads((resguardo / "restauracion.json").read_text())
+        manifest = json.loads((resguardo / "restauracion.json").read_text(encoding="utf-8"))
         self.assertEqual(set(manifest["ausentes"]), set(self.NOMBRES))
         self.assertEqual(manifest["anteriores"], [])
         self.assertTrue((self.destino / "Clientes.csv").exists())
@@ -221,7 +222,7 @@ class FiabilidadExportacionTest(unittest.TestCase):
     def test_fuente_antigua_sin_tablas_exporta_vacios_en_lugar_de_datos_previos(self):
         self.preparar_anteriores()
         antigua = self.carpeta / "antigua.db"
-        with sqlite3.connect(antigua) as con:
+        with closing(sqlite3.connect(antigua)) as con, con:
             con.execute("CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT)")
             con.execute("INSERT INTO clientes VALUES (1, 'Cliente antiguo')")
         agencia.exportar_legible(str(antigua), str(self.destino))
@@ -240,7 +241,7 @@ class FiabilidadExportacionTest(unittest.TestCase):
             nonlocal cambiado
             if valor == "Cliente actual" and not cambiado:
                 cambiado = True
-                with sqlite3.connect(self.ruta) as otra:
+                with closing(sqlite3.connect(self.ruta)) as otra, otra:
                     otra.execute("UPDATE clientes SET nombre='Cliente posterior'")
                     otra.execute("UPDATE trabajadoras SET nombre='Trabajadora posterior'")
             return original(valor)
@@ -259,7 +260,7 @@ class FiabilidadExportacionTest(unittest.TestCase):
                 agencia.copia_externa(str(self.ruta), str(externa), datetime(2026, 9, 29))
         copia = externa / "agencia-20260929.db"
         self.assertTrue(copia.is_file())
-        with agencia.conexion_lectura(str(copia)) as con:
+        with closing(agencia.conexion_lectura(str(copia))) as con, con:
             self.assertEqual(con.execute("SELECT nombre FROM clientes").fetchone()[0], "Cliente actual")
         self.assertEqual(list((externa / "Datos legibles").iterdir()), [])
 

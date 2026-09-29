@@ -5642,7 +5642,10 @@ def _iterar_copias(carpetas):
                         continue
                     try:
                         if entrada.is_file():
-                            archivos.append((entrada.stat(), entrada.path, nombre, donde))
+                            estado = entrada.stat()
+                            if not estado.st_ino:   # Windows no rellena el identificador en scandir
+                                estado = os.stat(entrada.path)
+                            archivos.append((estado, entrada.path, nombre, donde))
                     except OSError:
                         continue
         except OSError:

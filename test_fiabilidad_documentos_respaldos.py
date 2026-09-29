@@ -183,7 +183,7 @@ class ConservacionFinalTest(unittest.TestCase):
         with patch.object(agencia, "CARPETA_CONTRATOS", str(self.root)), patch("webbrowser.open") as abrir:
             self.pagina.imprimir_contrato(c)
         abrir.assert_called_once()
-        self.assertIn("Cliente ficticio", (self.root / f"contrato_{self.id}.html").read_text())
+        self.assertIn("Cliente ficticio", (self.root / f"contrato_{self.id}.html").read_text(encoding="utf-8"))
 
     def test_impresion_fallida_no_trunca_documento_anterior(self):
         c = self.firmar()
@@ -225,7 +225,7 @@ class ConservacionFinalTest(unittest.TestCase):
         with patch.object(agencia.os, "replace", side_effect=OSError("fallo simulado")):
             with self.assertRaises(OSError):
                 agencia.guardar_configuracion({"copia_adicional": "USB nueva"}, str(ruta))
-        self.assertEqual(json.loads(ruta.read_text())["copia_adicional"], "USB original")
+        self.assertEqual(json.loads(ruta.read_text(encoding="utf-8"))["copia_adicional"], "USB original")
         self.assertFalse(list(self.root.glob("*.tmp")))
 
     def test_archivo_atomico_no_publica_cuerpo_incompleto(self):
@@ -501,7 +501,7 @@ agencia.copia_externa(ruta,externa,datetime(2026,10,1))
                 if p.poll() is None:
                     p.kill()
                     p.communicate()
-        entradas = registro.read_text().splitlines()
+        entradas = registro.read_text(encoding="utf-8").splitlines()
         self.assertIn(entradas, [["in 0", "out 0", "in 1", "out 1"], ["in 1", "out 1", "in 0", "out 0"]])
         self.assertEqual(agencia.contar_datos(str(externa / "agencia-20261001.db"))["clientes"], 1)
         with open(externa / "Datos legibles" / "Clientes.csv", newline="", encoding="utf-8-sig") as f:
