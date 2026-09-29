@@ -48,16 +48,21 @@ def main():
                         raise RuntimeError("Ruta inesperada en el ZIP")
                 paquete.extractall(destino)
             carpeta = destino / "Servitotal-1.7.1"
+            ruta_python = str(carpeta / "runtime/python.exe").replace("'", "''")
+            ruta_pythonw = str(carpeta / "runtime/pythonw.exe").replace("'", "''")
             firmas = subprocess.run([
-                "powershell.exe", "-NoProfile", "-Command",
-                "@('python.exe','pythonw.exe') | ForEach-Object { "
-                "$s = Get-AuthenticodeSignature (Join-Path 'runtime' $_); "
-                "[pscustomobject]@{ Archivo=$_; Estado=$s.Status.ToString(); "
+                "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-Command",
+                "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; "
+                "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+                f"@('{ruta_python}','{ruta_pythonw}') | ForEach-Object {{ "
+                "$s = Get-AuthenticodeSignature -LiteralPath $_; "
+                "[pscustomobject]@{ Archivo=(Split-Path $_ -Leaf); Estado=$s.Status.ToString(); "
                 "Editor=$s.SignerCertificate.Subject } } | ConvertTo-Json -Compress"],
-                cwd=carpeta, capture_output=True, text=True, timeout=30)
+                cwd=carpeta, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+            informe["comprobacion_firmas"] = {"codigo": firmas.returncode, "stdout": firmas.stdout, "stderr": firmas.stderr}
             if firmas.returncode:
                 raise RuntimeError("No se pudieron comprobar las firmas: " + firmas.stderr)
-            informe["firmas_python"] = json.loads(firmas.stdout)
+            informe["firmas_python"] = json.loads(firmas.stdout.lstrip("\ufeff"))
             for firma in informe["firmas_python"]:
                 if firma["Estado"] != "Valid" or "Python Software Foundation" not in firma["Editor"]:
                     raise RuntimeError("Firma inesperada del Python incluido: " + str(firma))
