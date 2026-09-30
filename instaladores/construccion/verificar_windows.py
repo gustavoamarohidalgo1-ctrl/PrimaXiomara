@@ -386,7 +386,7 @@ def entorno_de_otro_python(base, carpeta):
                 PYTHONSTARTUP=str(ajena / "no-existe.py"))
 
 
-def asistente_completo(exe, windows, evidencia, entorno):
+def asistente_completo(exe, windows, evidencia, entorno, al_aviso=None):
     """Instala como la usuaria: Siguiente, Instalar y Terminar con «Abrir Servitotal ahora» marcado. Después la
     ventana del programa debe aparecer sola, en primer plano, y cerrarse normalmente con su botón X."""
     proceso = subprocess.Popen([str(exe)], env=entorno)
@@ -403,8 +403,12 @@ def asistente_completo(exe, windows, evidencia, entorno):
             asistente = next((v for v in propias if any(c["id"] == 3 for c in v["controles"])), None)  # tiene «Atrás»
             avisos = [v for v in propias if v is not asistente and v["clase"] == "#32770"]
             if avisos:
-                evidencia["aviso"] = {k: avisos[0][k] for k in ("titulo", "textos")}
-                raise RuntimeError("El instalador mostró un aviso: %s %s" % (avisos[0]["titulo"], avisos[0]["textos"]))
+                evidencia.setdefault("avisos_instalador", []).append({k: avisos[0][k] for k in ("titulo", "textos")})
+                if al_aviso is None:
+                    raise RuntimeError("El instalador mostró un aviso: %s %s" % (avisos[0]["titulo"], avisos[0]["textos"]))
+                windows.enviar(avisos[0]["hwnd"], WM_COMMAND, al_aviso(avisos[0]))   # el botón que elige la usuaria
+                time.sleep(2)
+                continue
             siguiente = next((c for c in (asistente or {}).get("controles", []) if c["id"] == 1), None)
             if siguiente and siguiente["habilitado"] and siguiente["visible"]:
                 texto = siguiente["texto"].replace("&", "")
@@ -658,8 +662,33 @@ def main():
             def instalar_nueva(evidencia):
                 if opciones.sin_anterior:
                     instalar(exe, evidencia)
-                else:           # sobre la versión anterior, con clics, como la usuaria
-                    asistente_completo(exe, windows, evidencia, entorno)
+                else:
+                    # Sobre la versión anterior, con clics, como la usuaria, y con la 1.7.1 todavía abierta: al pulsar
+                    # Instalar debe ofrecer Reintentar; ella cierra la 1.7.1 y pulsa Reintentar.
+                    abierta = subprocess.Popen([str(instalacion / "runtime/pythonw.exe"), str(instalacion / "app/iniciar.pyw"),
+                                                "--datos", str(temporal / "d2")], cwd=instalacion / "app", env=entorno)
+                    limite = time.monotonic() + 30
+                    while not any(v["titulo"] == TITULO for v in windows.ventanas(windows.descendientes(abierta.pid))):
+                        if time.monotonic() > limite or abierta.poll() is not None:
+                            raise RuntimeError("La versión anterior no llegó a abrirse")
+                        time.sleep(0.25)
+
+                    def al_aviso(aviso):
+                        texto = " ".join(aviso["textos"]).casefold()
+                        ids = [c["id"] for c in aviso["controles"]]
+                        if "abierto" not in texto or 4 not in ids:                   # 4 = IDRETRY
+                            raise RuntimeError("Aviso inesperado del instalador: %s" % aviso["textos"])
+                        windows.cerrar_prueba(abierta)                                # ella cierra la 1.7.1
+                        evidencia["reintento"] = True
+                        return 4
+
+                    try:
+                        asistente_completo(exe, windows, evidencia, entorno, al_aviso=al_aviso)
+                    finally:
+                        if abierta.poll() is None:
+                            windows.cerrar_prueba(abierta)
+                    if not evidencia.get("reintento"):
+                        raise RuntimeError("Con la 1.7.1 abierta, el instalador no ofreció Reintentar")
                 evidencia["version_registrada"] = version_registrada()
                 if evidencia["version_registrada"] != VERSION:
                     raise RuntimeError("El registro no muestra la versión " + VERSION)
