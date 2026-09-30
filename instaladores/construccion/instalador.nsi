@@ -26,7 +26,8 @@ VIAddVersionKey /LANG=1034 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 
 !include "MUI2.nsh"
-!include "${RAIZ}/instaladores/construccion/archivos_en_uso.nsh"
+!addincludedir "${RAIZ}/instaladores/construccion"   ; makensis de Windows no separa rutas con / en !include
+!include "archivos_en_uso.nsh"
 !define MUI_ICON "${ICONO}"
 !define MUI_UNICON "${ICONO}"
 !define MUI_ABORTWARNING

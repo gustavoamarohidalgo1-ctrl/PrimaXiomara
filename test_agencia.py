@@ -657,7 +657,7 @@ class CarpetaDeDatos(unittest.TestCase):
                     self.assertEqual(self.datos(plataforma="win32", entorno={"LOCALAPPDATA": "C:\\L"}),
                                      os.path.join("C:\\L", agencia.AGENCIA_CARPETA_DATOS))
                     self.assertEqual(self.datos(plataforma="linux"),
-                                     os.path.join("/Users/ana/.local/share", agencia.AGENCIA_CARPETA_DATOS))
+                                     os.path.join("/Users/ana", ".local", "share", agencia.AGENCIA_CARPETA_DATOS))
                     self.assertNotEqual(agencia.AGENCIA_CARPETA_DATOS, agencia.AGENCIA_NOMBRE)
                     Path(vacia, "agencia.db").write_bytes(b"")   # datos de una instalación antigua junto al .exe
                     self.assertEqual(self.datos(plataforma="win32"), vacia)

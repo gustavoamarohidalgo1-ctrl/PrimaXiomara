@@ -96,7 +96,7 @@ class InstaladoresProtegidos(unittest.TestCase):
                 guion.write_bytes(b"\xef\xbb\xbf" + fuente.read_bytes())
                 salida = temporal / "fixture.exe"
                 compilacion = subprocess.run([
-                    compilador, "-V3", f"-DRAIZ={proyecto.as_posix()}", f"-DAPLICACION={app}",
+                    compilador, "-V3", f"-DRAIZ={proyecto}", f"-DAPLICACION={app}",
                     f"-DRUNTIME={runtime}", "-DVERSION=1.7.1", f"-DSALIDA={salida}",
                     f"-DICONO={icono}", str(guion)], capture_output=True, text=True,
                     env={**os.environ, "LC_ALL": "en_US.UTF-8"}, timeout=30)

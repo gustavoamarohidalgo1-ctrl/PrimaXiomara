@@ -4376,6 +4376,8 @@ class DialogoCopias(tk.Toplevel):
         self.btn_quitar.pack(side="left")
         ttk.Button(fila, text="Abrir carpeta de copias", style="Accion.TButton",
                    command=lambda: abrir_carpeta(CARPETA_RESPALDOS)).pack(side="right")
+        ttk.Button(fila, text="Traer datos de otra carpeta…", style="Accion.TButton",
+                   command=self.traer_de_archivo).pack(side="right", padx=8)
         ttk.Label(cont, text="COPIAS DISPONIBLES", style="Seccion.TLabel").pack(anchor="w", pady=(4, 8))
         marco, self.lista = crear_tabla(cont, [
             ("fecha", "Fecha", 160), ("tipo", "Tipo", 160), ("donde", "Dónde", 110),
@@ -4444,6 +4446,38 @@ class DialogoCopias(tk.Toplevel):
         sel = self.lista.selection()
         if sel and self.app.restaurar_copia(self.copias[int(sel[0])]):
             messagebox.showinfo("Copia restaurada", "Listo: los datos de esa copia ya están en el programa.", parent=self)
+            self.refrescar()
+
+    def traer_de_archivo(self):
+        """Trae los datos de un agencia.db elegido a mano: la versión anterior, un USB o una copia enviada."""
+        from tkinter import filedialog
+        ruta = filedialog.askopenfilename(
+            parent=self, title="Elija el archivo agencia.db de la versión anterior (o una copia .db)",
+            initialdir=carpeta_documentos(), filetypes=[("Datos de la agencia", "*.db"), ("Todos los archivos", "*.*")])
+        if not ruta:
+            return
+        ruta = os.path.normpath(ruta)
+        datos = contar_datos(ruta)
+        if datos is None or misma_ruta(ruta, DB_PATH):
+            messagebox.showerror(
+                "Archivo no válido",
+                "Ese archivo no contiene datos de la agencia que se puedan leer, o es la base que ya está abierta."
+                "\n\nElija el archivo agencia.db de la carpeta de la versión anterior o una copia de seguridad.",
+                parent=self)
+            return
+        try:
+            fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
+        except (OSError, ValueError, OverflowError):
+            fecha = datetime.now()
+        copia = {"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Otra carpeta", "donde": os.path.dirname(ruta),
+                 "fecha": fecha, **datos}
+        try:
+            traida = self.app.restaurar_copia(copia)
+        except (sqlite3.Error, OSError, ValueError) as error:
+            messagebox.showerror("No se pudieron traer los datos", f"{error}\n\nNo se modificó nada.", parent=self)
+            return
+        if traida:
+            messagebox.showinfo("Datos traídos", "Listo: los datos de ese archivo ya están en el programa.", parent=self)
             self.refrescar()
 
 
@@ -4673,14 +4707,29 @@ class App:
         """El programa se abrió sin datos pero hay copias: ofrece recuperarlas."""
         if hay_datos(DB_PATH):      # mientras tanto se escribió algo (o la base estaba ocupada): no se toca nada
             return
-        if messagebox.askyesno(
-                "Recuperar sus datos",
-                f"Este programa no tiene datos, pero se encontró una copia de seguridad del "
-                f"{copia['fecha']:%d/%m/%Y a las %H:%M} ({copia['donde'].lower()}) con {copia['clientes']} clientes, "
-                f"{copia['trabajadoras']} trabajadoras y {copia['colocaciones']} asignaciones.\n\n"
-                "¿Desea recuperarla ahora?", parent=self.root):
+        if copia.get("tipo") == "Versión anterior":
+            pregunta = (f"Este programa todavía no tiene datos, pero se encontraron los datos de la versión anterior "
+                        f"en:\n\n{copia['ruta']}\n\nTienen {copia['clientes']} clientes, {copia['trabajadoras']} "
+                        f"trabajadoras y {copia['colocaciones']} asignaciones (último cambio: "
+                        f"{copia['fecha']:%d/%m/%Y a las %H:%M}).\n\n¿Desea traerlos ahora a esta versión? "
+                        "El archivo de la versión anterior no se modifica.")
+            titulo = "Traer los datos de la versión anterior"
+        else:
+            pregunta = (f"Este programa no tiene datos, pero se encontró una copia de seguridad del "
+                        f"{copia['fecha']:%d/%m/%Y a las %H:%M} ({copia['donde'].lower()}) con {copia['clientes']} "
+                        f"clientes, {copia['trabajadoras']} trabajadoras y {copia['colocaciones']} asignaciones.\n\n"
+                        "¿Desea recuperarla ahora?")
+            titulo = "Recuperar sus datos"
+        if messagebox.askyesno(titulo, pregunta, parent=self.root):
             self.hacer_copia("antes-de-restaurar", avisar=False)
-            self.db.restaurar_desde(copia["ruta"])
+            try:
+                self.db.restaurar_desde(copia["ruta"])
+            except (sqlite3.Error, OSError, ValueError) as error:
+                messagebox.showerror(
+                    "No se pudieron traer los datos",
+                    f"{error}\n\nNo se modificó nada. Puede intentarlo desde Copias de seguridad "
+                    "(Ctrl+Shift+B) con «Traer datos de otra carpeta…».", parent=self.root)
+                return
             self.refrescar_todo()
             messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
 
@@ -5675,6 +5724,94 @@ def buscar_restauracion(ruta=None, carpetas=None):
     return next((c for c in _iterar_copias(carpetas) if any(c[t] for t in TABLAS) or hay_datos(c["ruta"])), None)
 
 
+def carpetas_personales():
+    """Escritorio, Documentos y Descargas del usuario (aunque estén en OneDrive) y su carpeta personal: donde
+    suele quedar la carpeta de una versión anterior con su agencia.db."""
+    casa = os.path.expanduser("~")
+    carpetas = []
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            for codigo in (0x10, 5):   # Escritorio y Documentos, con su ubicación real
+                ruta = ctypes.create_unicode_buffer(260)
+                if ctypes.windll.shell32.SHGetFolderPathW(None, codigo, None, 0, ruta) == 0 and ruta.value:
+                    carpetas.append(ruta.value)
+        except Exception:
+            pass
+    bases = [casa] + [os.environ[v] for v in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial")
+                      if os.environ.get(v)]
+    for base in bases:
+        for nombre in ("Desktop", "Escritorio", "Documents", "Documentos", "Downloads", "Descargas"):
+            carpetas.append(os.path.join(base, nombre))
+    carpetas += bases
+    unicas = []
+    for carpeta in carpetas:
+        clave = os.path.normcase(os.path.abspath(carpeta))
+        if os.path.isdir(carpeta) and clave not in {os.path.normcase(os.path.abspath(c)) for c in unicas}:
+            unicas.append(carpeta)
+    return unicas
+
+
+_SIN_BUSCAR = {"appdata", "application data", "library", "node_modules", "site-packages", "__pycache__",
+               "$recycle.bin", "windows", "program files", "program files (x86)", "respaldos"}
+
+
+def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_carpetas=3000, segundos=4.0):
+    """Bases «agencia.db» de otra carpeta (la versión anterior guardaba sus datos junto al programa).
+    Recorre poco y con límite de tiempo: nunca demora la apertura. Devuelve copias con datos, la más nueva primero."""
+    import time
+    actual = DB_PATH if actual is None else actual
+    carpetas = carpetas_personales() if carpetas is None else carpetas
+    plazo = time.monotonic() + segundos
+    pendientes = [(c, 0) for c in carpetas]
+    vistas, encontradas = set(), []
+    while pendientes and len(vistas) < limite_carpetas and time.monotonic() < plazo:
+        carpeta, nivel = pendientes.pop(0)
+        clave = os.path.normcase(os.path.abspath(carpeta))
+        if clave in vistas:
+            continue
+        vistas.add(clave)
+        try:
+            with os.scandir(carpeta) as entradas:
+                for entrada in entradas:
+                    try:
+                        if entrada.is_symlink() or getattr(entrada, "is_junction", lambda: False)():
+                            continue
+                        if entrada.is_file() and entrada.name.lower() == "agencia.db":
+                            encontradas.append(entrada.path)
+                        elif (nivel < profundidad and entrada.is_dir() and not entrada.name.startswith((".", "$"))
+                              and entrada.name.lower() not in _SIN_BUSCAR):
+                            pendientes.append((entrada.path, nivel + 1))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    copias = []
+    for ruta in dict.fromkeys(encontradas):
+        if misma_ruta(ruta, actual):
+            continue
+        try:
+            fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
+        except (OSError, ValueError, OverflowError):
+            continue
+        datos = contar_datos(ruta)
+        if datos is not None and any(datos.values()):
+            copias.append({"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Versión anterior",
+                           "donde": os.path.dirname(ruta), "fecha": fecha, **datos})
+    return sorted(copias, key=lambda c: c["fecha"], reverse=True)
+
+
+def buscar_base_anterior(ruta=None, carpetas=None):
+    """Si el programa está vacío, la base más reciente de una versión anterior que se puede traer."""
+    ruta = DB_PATH if ruta is None else ruta
+    if hay_datos(ruta):
+        return None
+    try:
+        return next(iter(buscar_bases_anteriores(carpetas, actual=ruta)), None)
+    except Exception:   # buscar es una ayuda: nunca debe impedir abrir el programa
+        return None
+
+
 def restaurar_si_esta_danada(ruta=None, carpeta=None):
     """Prepara y migra la recuperación antes de apartar una base dañada."""
     import tempfile
@@ -5742,7 +5879,7 @@ def preparar_base():
         copia = respaldar("antes-de-actualizar")
         if not (copia["archivo"] or copia["externas"] or copia["omitido"]):
             raise OSError("No se pudo guardar una copia antes de actualizar la base. " + "; ".join(copia["errores"]))
-    return aviso, buscar_restauracion()
+    return aviso, buscar_restauracion() or buscar_base_anterior()
 
 
 def reabrir_con_tk_moderno():
