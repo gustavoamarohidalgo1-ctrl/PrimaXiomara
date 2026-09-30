@@ -1,8 +1,11 @@
-"""Un fallo al abrir nunca debe pasar en silencio: pythonw no tiene consola y la usuaria solo vería que no pasa nada."""
+"""Comportamientos propios de Windows: arranque sin consola (pythonw), Tcl/Tk ajeno, rutas de red y archivos que
+otro programa mantiene abiertos."""
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -112,6 +115,71 @@ class TclDeOtroPrograma(unittest.TestCase):
         propia = os.path.join(sys.base_prefix, "tcl", f"tcl{agencia.tk.TclVersion}")
         if os.path.isdir(propia):       # Tcl 9 (Python 3.14) lleva su biblioteca dentro de la DLL
             self.assertIn(propia, proceso.stdout)
+
+
+class BasesEnOtrasRutas(unittest.TestCase):
+    def test_uri_de_rutas_locales_con_acentos_espacios_y_almohadilla(self):
+        with tempfile.TemporaryDirectory(prefix="ruta #1 ñ ") as carpeta:
+            ruta = os.path.join(carpeta, "agencia vieja #2.db")
+            with closing(sqlite3.connect(ruta)) as con, con:
+                con.execute("CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT)")
+                con.execute("INSERT INTO clientes (nombre) VALUES ('Ana')")
+            self.assertEqual(agencia.contar_datos(ruta)["clientes"], 1)
+            self.assertEqual(agencia.contar_datos(os.path.relpath(ruta))["clientes"], 1)
+            self.assertIsNone(agencia.contar_datos(ruta + ".no-existe"))
+            self.assertFalse(os.path.exists(ruta + ".no-existe"))
+
+    @unittest.skipUnless(sys.platform == "win32", "las rutas UNC sólo existen en Windows")
+    def test_una_base_en_una_carpeta_de_red_se_puede_leer(self):
+        with tempfile.TemporaryDirectory(prefix="red ñ ") as carpeta:
+            ruta = os.path.join(carpeta, "agencia.db")
+            with closing(sqlite3.connect(ruta)) as con, con:
+                con.execute("CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT)")
+                con.execute("INSERT INTO clientes (nombre) VALUES ('Ana')")
+            unidad, resto = os.path.splitdrive(os.path.realpath(ruta))
+            unc = "\\\\localhost\\" + unidad.rstrip(":") + "$" + resto
+            if not os.path.exists(unc):
+                self.skipTest("este equipo no comparte sus unidades como \\\\localhost\\C$")
+            self.assertEqual(agencia.uri_sqlite(unc)[:12], "file:////loc")
+            self.assertEqual(agencia.contar_datos(unc)["clientes"], 1)
+
+
+class CsvAbiertoEnExcel(unittest.TestCase):
+    """En Windows no se puede reemplazar un CSV que Excel tiene abierto: la copia .db vale y el aviso no se repite."""
+
+    def test_la_copia_de_la_base_vale_y_el_aviso_es_siempre_el_mismo(self):
+        from datetime import datetime
+        with tempfile.TemporaryDirectory(prefix="csv abierto ") as carpeta:
+            ruta = os.path.join(carpeta, "agencia.db")
+            base = agencia.BaseDatos(ruta)
+            try:
+                base.con.execute("INSERT INTO clientes (nombre) VALUES ('Ana')")
+                base.con.commit()
+            finally:
+                base.con.close()
+            externa = os.path.join(carpeta, "Respaldos")
+            agencia.copia_externa(ruta, externa, datetime(2026, 9, 28))        # CSV anteriores ya publicados
+            original = os.replace
+
+            def reemplazar(origen, destino):
+                if str(destino).endswith(".csv"):
+                    raise PermissionError(13, "El proceso no tiene acceso al archivo porque está siendo utilizado")
+                return original(origen, destino)
+
+            errores = []
+            with mock.patch.object(agencia.os, "replace", reemplazar):
+                for dia in (29, 30):
+                    resultado = agencia.respaldar("auto", ruta=ruta, carpeta=os.path.join(carpeta, "respaldos"),
+                                                  externas=[externa], ahora=datetime(2026, 9, dia))
+                    self.assertEqual(resultado["externas"], [externa])
+                    errores.append(resultado["errores"])
+            self.assertEqual(errores[0], errores[1])                          # se avisa una sola vez por sesión
+            self.assertIn("Datos legibles", errores[0][0])
+            self.assertNotIn(".exportacion-csv-", errores[0][0])
+            self.assertTrue(os.path.isfile(os.path.join(externa, "agencia-20260930.db")))
+            self.assertTrue(os.path.isfile(os.path.join(externa, "Datos legibles", "Clientes.csv")))
+            restos = [n for n in os.listdir(os.path.join(externa, "Datos legibles")) if n.startswith(".exportacion")]
+            self.assertEqual(restos, [])
 
 
 if __name__ == "__main__":

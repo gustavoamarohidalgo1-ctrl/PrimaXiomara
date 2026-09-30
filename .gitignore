@@ -33,7 +33,7 @@
 !/test_optimizacion_ui.py
 !/test_instaladores_fiabilidad.py
 !/test_datos_version_anterior.py
-!/test_arranque_windows.py
+!/test_compatibilidad_windows.py
 !/instaladores/
 /instaladores/*
 !/instaladores/Servitotal-Windows-x64.exe

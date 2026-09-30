@@ -6,7 +6,8 @@
 *.command text eol=lf
 *.nsi text eol=lf
 *.nsh text eol=lf
-*.bat text eol=crlf
+# CRLF también dentro del repositorio: «Download raw file» entrega el archivo tal cual y cmd.exe lo necesita.
+*.bat -text
 *.png binary
 *.ico binary
 *.icns binary

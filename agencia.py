@@ -5183,10 +5183,19 @@ COPIA_CADA_MS = 24 * 60 * 60 * 1000   # copia automática cada 24 horas (además
 CONFIG_PATH = os.path.join(CARPETA, "configuracion.json")
 
 
+def uri_sqlite(ruta):
+    """URI «file:» de un archivo local o de red. Sin resolve(): en Windows convierte una unidad de red (Z:) en su
+    ruta UNC, y SQLite rechaza «file://servidor/...»; con la autoridad vacía («file:////servidor/...») sí la abre."""
+    ruta = os.path.abspath(ruta)
+    if sys.platform == "win32" and ruta.startswith("\\\\") and not ruta.startswith("\\\\?\\"):
+        from urllib.parse import quote
+        return "file://" + quote(ruta.replace("\\", "/"), safe="/")
+    return Path(ruta).as_uri()
+
+
 def conexion_lectura(ruta, timeout=1):
     """Abre un archivo existente sin crearlo ni permitir escrituras."""
-    uri = Path(ruta).resolve().as_uri() + "?mode=ro"
-    return sqlite3.connect(uri, uri=True, timeout=timeout)
+    return sqlite3.connect(uri_sqlite(ruta) + "?mode=ro", uri=True, timeout=timeout)
 
 
 def base_sana(ruta):
@@ -5498,12 +5507,19 @@ def _publicar_csvs(preparados, carpeta, resguardo, nombres):
                    "ausentes": [n for n in nombres if n not in anteriores]}, archivo, ensure_ascii=False, indent=2)
         archivo.flush()
         os.fsync(archivo.fileno())
+    publicados = []
     try:
         for nombre in nombres:
-            os.replace(os.path.join(preparados, nombre), os.path.join(carpeta, nombre))
+            origen = os.path.join(preparados, nombre)
+            try:
+                os.replace(origen, os.path.join(carpeta, nombre))
+            finally:
+                if not os.path.lexists(origen):   # ya se movió, aunque después fallara algo
+                    publicados.append(nombre)
     except BaseException as error:
         try:
-            errores = _revertir_csvs(carpeta, resguardo, anteriores, nombres)
+            # Sólo se revierte lo publicado: un CSV que Excel mantiene abierto sigue siendo el anterior y no se toca.
+            errores = _revertir_csvs(carpeta, resguardo, anteriores, publicados)
         except BaseException as fallo:
             errores = [str(fallo)]
         if errores:
@@ -5560,6 +5576,11 @@ def exportar_legible(ruta, carpeta):
             shutil.rmtree(temporal, ignore_errors=True)
 
 
+class CsvEnUso(OSError):
+    """La copia .db quedó guardada, pero un CSV de «Datos legibles» está abierto (p. ej. en Excel) y Windows no
+    permite reemplazarlo. Se conservan los CSV anteriores; el aviso no cambia de una copia a otra."""
+
+
 def copia_externa(ruta, carpeta, ahora=None):
     """Una copia por día (se renueva durante el día) más los datos legibles, en una carpeta fuera del programa."""
     ahora = ahora or datetime.now()
@@ -5582,7 +5603,12 @@ def copia_externa(ruta, carpeta, ahora=None):
                               "Los textos que podrían interpretarse como fórmulas llevan un apóstrofo protector.\n"
                               "Para recuperar: abra el programa y pulse Cmd+Shift+B (Mac) o Ctrl+Shift+B (Windows) > Restaurar una copia.\n"
                               "No borre esta carpeta: es su respaldo si algo le pasa a la computadora.\n")
-        exportar_legible(destino, os.path.join(carpeta, "Datos legibles"))
+        try:
+            exportar_legible(destino, os.path.join(carpeta, "Datos legibles"))
+        except PermissionError as error:
+            raise CsvEnUso("la copia de la base se guardó, pero los archivos de Excel de «Datos legibles» no se "
+                           "actualizaron porque uno está abierto en otro programa. Ciérrelo y se actualizarán en "
+                           "la próxima copia.") from error
 
 
 def nombre_copia(motivo, ahora):
@@ -5661,6 +5687,9 @@ def respaldar(motivo="auto", ruta=None, carpeta=None, externas=None, ahora=None)
             try:
                 copia_externa(ruta, externa, ahora)
                 resultado["externas"].append(externa)
+            except CsvEnUso as error:
+                resultado["externas"].append(externa)     # la copia .db de ese día sí quedó guardada
+                resultado["errores"].append(f"Copia en «{externa}»: {error}")
             except (OSError, sqlite3.Error) as error:
                 resultado["errores"].append(f"Copia en «{externa}»: {error}")
     return resultado
