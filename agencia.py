@@ -4723,6 +4723,35 @@ class App:
         self.refrescar_todo()
         return True
 
+    def ofrecer_datos_al_abrir(self, copia):
+        """Con la ventana ya visible, busca en otro hilo los datos de la versión anterior (puede tardar unos
+        segundos) y después ofrece lo más reciente entre eso y la copia de seguridad `copia`."""
+        import queue
+        if not BUSCAR_VERSION_ANTERIOR or hay_datos(DB_PATH):
+            if copia:
+                self.root.after(400, lambda: self.ofrecer_recuperacion(copia))
+            return
+        resultado = queue.Queue()
+
+        def buscar():
+            try:
+                resultado.put(buscar_base_anterior())
+            except BaseException:           # buscar es una ayuda: nunca debe dejar el programa esperando
+                resultado.put(None)
+
+        def recoger():
+            try:
+                anterior = resultado.get_nowait()
+            except queue.Empty:
+                self.root.after(100, recoger)
+                return
+            oferta = elegir_oferta(copia, anterior)
+            if oferta:
+                self.ofrecer_recuperacion(oferta)
+
+        threading.Thread(target=buscar, name="busqueda-version-anterior", daemon=True).start()
+        self.root.after(400, recoger)
+
     def ofrecer_recuperacion(self, copia):
         """El programa se abrió sin datos pero hay copias: ofrece recuperarlas. Si la persona dice que no y hay otra
         opción (una copia de seguridad o los datos de la versión anterior), se ofrece esa."""
@@ -6012,20 +6041,27 @@ def esquema_desactualizado(ruta):
         return False
 
 
-def preparar_base():
+def elegir_oferta(copia, anterior):
+    """Entre una copia de seguridad y los datos de la versión anterior, ofrece primero lo más reciente (una copia
+    diaria de la mañana no debe tapar la base anterior de la tarde) y deja lo otro como alternativa."""
+    if anterior and (copia is None or anterior["fecha"] > copia["fecha"]):
+        return dict(anterior, alternativa=copia)
+    return dict(copia, alternativa=anterior) if copia else None
+
+
+def preparar_base(buscar_anterior=True):
     """Antes de abrir la ventana: revisa la base y, si hace falta, la restaura.
-    Devuelve (aviso, oferta): un aviso si se restauró algo, y la copia que conviene ofrecer si el programa está vacío."""
+    Devuelve (aviso, oferta): un aviso si se restauró algo, y la copia que conviene ofrecer si el programa está vacío.
+    Con buscar_anterior=False no recorre las carpetas personales (el programa lo hace después, con la ventana ya
+    abierta: esa búsqueda puede tardar unos segundos)."""
     aviso = restaurar_si_esta_danada()
     if esquema_desactualizado(DB_PATH):
         copia = respaldar("antes-de-actualizar")
         if not (copia["archivo"] or copia["externas"] or copia["omitido"]):
             raise OSError("No se pudo guardar una copia antes de actualizar la base. " + "; ".join(copia["errores"]))
     copia = buscar_restauracion()
-    anterior = buscar_base_anterior() if BUSCAR_VERSION_ANTERIOR else None
-    # Se ofrece primero lo más reciente: una copia diaria de la mañana no debe tapar la base anterior de la tarde.
-    if anterior and (copia is None or anterior["fecha"] > copia["fecha"]):
-        return aviso, dict(anterior, alternativa=copia)
-    return aviso, (dict(copia, alternativa=anterior) if copia else None)
+    anterior = buscar_base_anterior() if buscar_anterior and BUSCAR_VERSION_ANTERIOR else None
+    return aviso, elegir_oferta(copia, anterior)
 
 
 def reabrir_con_tk_moderno():
@@ -6183,7 +6219,7 @@ def main():
     root.report_callback_exception = lambda tipo, valor, traza: avisar_error(root, tipo, valor, traza)
     try:
         os.makedirs(CARPETA, exist_ok=True)
-        aviso, oferta = preparar_base()
+        aviso, oferta = preparar_base(buscar_anterior=False)   # la ventana aparece sin esperar esa búsqueda
         app = App(root)
     except Exception:  # p. ej. base dañada sin respaldo, bloqueada o sin permiso: avisar en vez de cerrarse en silencio
         avisar_error(root, *sys.exc_info())
@@ -6192,8 +6228,8 @@ def main():
     fijar_relanzamiento(root)
     if aviso:
         root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
-    elif oferta:
-        root.after(400, lambda: app.ofrecer_recuperacion(oferta))
+    else:
+        app.ofrecer_datos_al_abrir(oferta and {k: v for k, v in oferta.items() if k != "alternativa"})
     root.mainloop()
 
 

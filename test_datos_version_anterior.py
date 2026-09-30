@@ -265,6 +265,32 @@ class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
         self.assertNotIn("Compruebe que son los datos", self.mensajes[0][1])   # su agencia.py dice Servitotal
         self.assertEqual(self.app.db.todos("clientes"), [])            # «No»: no se trae nada
 
+    def test_la_ventana_no_espera_la_busqueda_y_la_oferta_llega_despues(self):
+        base_anterior(self.base / "Escritorio" / "Agencia" / "agencia.db")
+        with mock.patch.object(agencia, "buscar_bases_anteriores", side_effect=AssertionError("no debe buscar")):
+            self.assertEqual(agencia.preparar_base(buscar_anterior=False), (None, None))
+        listo = threading.Event()
+        original = agencia.buscar_bases_anteriores
+
+        def lenta(*a, **k):
+            listo.wait(5)                       # una búsqueda lenta no bloquea la ventana
+            return original(*a, **k)
+
+        with mock.patch.object(agencia, "BUSCAR_VERSION_ANTERIOR", True), \
+                mock.patch.object(agencia, "carpetas_personales", lambda: [str(self.base / "Escritorio")]), \
+                mock.patch.object(agencia, "buscar_bases_anteriores", lenta):
+            self.app.ofrecer_datos_al_abrir(None)
+            self.root.update()
+            self.assertEqual(self.mensajes, [])             # todavía buscando: la ventana sigue libre
+            listo.set()
+            import time
+            limite = time.monotonic() + 10
+            while not self.mensajes and time.monotonic() < limite:
+                self.root.update()
+                time.sleep(0.05)
+        self.assertEqual(self.mensajes[0][0], "Traer los datos de la versión anterior")
+        self.assertEqual([c["nombre"] for c in self.app.db.todos("clientes")], ["Clienta ficticia Ñuñoa"])
+
     def test_si_dice_no_a_la_copia_se_le_ofrece_la_version_anterior(self):
         anterior = base_anterior(self.base / "Escritorio" / "Agencia" / "agencia.db")
         copia = base_anterior(self.base / "copia" / "agencia-20260929.db", clientes=("Copia vieja",))
