@@ -48,6 +48,9 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 
 Function AbrirPrograma
   SetOutPath "$INSTDIR\app"
+  ; El instalador está al frente y se cierra enseguida: sin este permiso Windows puede abrir el programa detrás de
+  ; las demás ventanas y parecería que no se abrió nada.
+  System::Call 'user32::AllowSetForegroundWindow(i -1)'
   Exec '"$INSTDIR\runtime\pythonw.exe" ${COMANDO_ARGUMENTOS}'
 FunctionEnd
 

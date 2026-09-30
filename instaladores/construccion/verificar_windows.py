@@ -143,6 +143,7 @@ class Windows:
         self.user.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
         self.user.SendMessageW.restype = ctypes.c_ssize_t
         self.user.IsWindowEnabled.argtypes = [wintypes.HWND]
+        self.user.IsIconic.argtypes = [wintypes.HWND]
         self.user.GetForegroundWindow.restype = wintypes.HWND
         self.kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
         self.shell.SHGetFolderPathW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.HANDLE, wintypes.DWORD,
@@ -426,6 +427,9 @@ def asistente_completo(exe, windows, evidencia, entorno):
             raise RuntimeError("El asistente no pasó por Instalar y Terminar: " + str(evidencia["pulsados"]))
         time.sleep(4)
         evidencia["en_primer_plano"] = windows.user.GetForegroundWindow() == programa["hwnd"]
+        evidencia["minimizada"] = bool(windows.user.IsIconic(programa["hwnd"]))
+        if not evidencia["en_primer_plano"] or evidencia["minimizada"]:
+            raise RuntimeError("La ventana del programa quedó detrás de otras o minimizada: la usuaria no la vería")
         otros = [v for v in windows.ventanas({programa["pid"]}) if v["clase"] == "#32770"]
         if otros:
             raise RuntimeError("El programa abrió con un aviso: %s %s" % (otros[0]["titulo"], otros[0]["textos"]))

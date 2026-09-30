@@ -6189,6 +6189,29 @@ def propiedades_de_ventana(hwnd, valores=None):
         liberar(almacen)
 
 
+def traer_al_frente(root):
+    """Windows puede dejar detrás de las demás ventanas un programa abierto por otro que se está cerrando (el botón
+    «Terminar» del instalador): parecería que no se abrió nada. Se muestra un momento por encima de todo y toma el
+    foco; luego vuelve a ser una ventana normal."""
+    if not ES_WINDOWS:
+        return
+
+    def soltar():
+        try:
+            root.attributes("-topmost", False)
+        except tk.TclError:          # la ventana ya se cerró
+            pass
+
+    try:
+        root.deiconify()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        root.after(1500, soltar)
+    except tk.TclError:
+        pass
+
+
 def fijar_relanzamiento(root):
     """Windows: al anclar la ventana abierta a la barra de tareas, el ícono anclado debe volver a abrir Servitotal.
     Sin estas propiedades Windows anclaría pythonw.exe sin argumentos, que al pulsarlo no abre nada."""
@@ -6226,6 +6249,7 @@ def main():
         root.destroy()
         return
     fijar_relanzamiento(root)
+    traer_al_frente(root)
     if aviso:
         root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
     else:

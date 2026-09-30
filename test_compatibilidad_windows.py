@@ -207,6 +207,26 @@ class BarraDeTareas(unittest.TestCase):
         self.assertIn(completa, comando)                  # el guion con ruta completa, no relativa
         self.assertTrue(comando.endswith('--datos "C:/datos x"'))
 
+    @unittest.skipUnless(sys.platform == "win32", "sólo Windows deja un programa nuevo detrás de otras ventanas")
+    def test_la_ventana_se_muestra_al_frente_y_vuelve_a_ser_normal(self):
+        try:
+            root = agencia.tk.Tk()
+        except agencia.tk.TclError:
+            self.skipTest("no hay pantalla disponible")
+        try:
+            agencia.traer_al_frente(root)
+            root.update()
+            self.assertEqual(root.state(), "normal")
+            self.assertTrue(root.attributes("-topmost"))
+            import time
+            limite = time.monotonic() + 5
+            while root.attributes("-topmost") and time.monotonic() < limite:
+                root.update()
+                time.sleep(0.05)
+            self.assertFalse(root.attributes("-topmost"))        # no queda siempre encima
+        finally:
+            root.destroy()
+
     @unittest.skipUnless(sys.platform == "win32", "las propiedades de la barra de tareas sólo existen en Windows")
     def test_la_ventana_guarda_como_reabrirse_al_anclarla(self):
         try:
