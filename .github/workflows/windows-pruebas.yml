@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           python -c "import sys, struct, tkinter, sqlite3; print(sys.version, struct.calcsize('P')*8, 'bits', 'Tk', tkinter.TkVersion, 'SQLite', sqlite3.sqlite_version)"
-          python -X faulthandler -m unittest discover -v 2>&1 | Tee-Object -FilePath pruebas.txt
+          python -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(900, exit=True); unittest.main(module=None, argv=['pruebas', 'discover', '-v'])" 2>&1 | Tee-Object -FilePath pruebas.txt
           exit $LASTEXITCODE
 
       - name: Conservar resultado
@@ -75,7 +75,7 @@ jobs:
       - name: Ejecutar todas las pruebas con el Python incluido
         shell: pwsh
         run: |
-          & $env:PYTHON_INCLUIDO -X faulthandler -m unittest discover -v 2>&1 | Tee-Object -FilePath pruebas.txt
+          & $env:PYTHON_INCLUIDO -X faulthandler -c "import faulthandler, unittest; faulthandler.dump_traceback_later(900, exit=True); unittest.main(module=None, argv=['pruebas', 'discover', '-v'])" 2>&1 | Tee-Object -FilePath pruebas.txt
           exit $LASTEXITCODE
 
       - name: Conservar resultado

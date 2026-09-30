@@ -614,7 +614,7 @@ def main():
                                  for paso in informe["pasos"].values()))
         opciones.evidencia.parent.mkdir(parents=True, exist_ok=True)
         opciones.evidencia.write_text(json.dumps(informe, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(json.dumps(informe, ensure_ascii=False, indent=2))
+        print(json.dumps(informe, ensure_ascii=True, indent=2))   # la consola de Windows puede no ser UTF-8
     return 0 if informe["ok"] else 1
 
 
