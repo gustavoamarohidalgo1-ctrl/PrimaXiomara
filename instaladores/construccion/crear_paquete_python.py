@@ -7,10 +7,10 @@ import zipfile
 
 
 RAIZ = Path(__file__).resolve().parents[2]
-SALIDA = RAIZ / "instaladores/Servitotal-1.7.1-Windows-Python.zip"
-NOMBRE = "Servitotal-1.7.1-Python"
+SALIDA = RAIZ / "instaladores/Servitotal-1.7.2-Windows-Python.zip"
+NOMBRE = "Servitotal-1.7.2-Python"
 ARCHIVOS = ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")
-LEEME = """SERVITOTAL 1.7.1 — ABRIR CON PYTHON OFICIAL EN WINDOWS DE 64 BITS
+LEEME = """SERVITOTAL 1.7.2 — ABRIR CON PYTHON OFICIAL EN WINDOWS DE 64 BITS
 
 1. Descargue el instalador completo Python 3.14.7 de 64 bits desde:
    https://www.python.org/downloads/release/python-3147/
@@ -19,19 +19,20 @@ LEEME = """SERVITOTAL 1.7.1 — ABRIR CON PYTHON OFICIAL EN WINDOWS DE 64 BITS
    En Customize installation mantenga tcl/tk and IDLE y el lanzador Python.
    En las opciones avanzadas mantenga Associate files with Python.
    Instale para su usuario; no necesita instalar paquetes con pip.
-3. Clic derecho sobre Servitotal-1.7.1-Windows-Python.zip > Extraer todo.
+3. Clic derecho sobre Servitotal-1.7.2-Windows-Python.zip > Extraer todo.
    Conserve toda la carpeta extraída; puede guardarla en Documentos.
 4. Doble clic en Abrir Servitotal.pyw desde esa carpeta.
-   Si Windows pregunta con qué abrirlo, elija Python.
+   Si Windows pregunta con qué abrirlo, elija Python (no el de Microsoft Store).
 
-Este paquete contiene el mismo programa 1.7.1 y sus gráficos originales.
+Este paquete contiene el mismo programa 1.7.2 y sus gráficos originales.
 No incluye Python, EXE propio ni registros reales del negocio.
 El archivo .pyw es el acceso al programa: no abra app/agencia.py directamente.
 
 Los datos se guardan en %LOCALAPPDATA%\\Servitotal, igual que con el instalador.
 Guarde y cierre cualquier Servitotal abierto antes de usar esta versión.
-Si su versión antigua guardaba agencia.db junto al programa, conserve esa carpeta,
-haga un respaldo desde ella y restáurelo desde el panel de respaldos de esta versión.
+Si su versión anterior guardaba agencia.db junto al programa, conserve esa carpeta:
+la primera vez el programa la busca en Escritorio, Documentos y Descargas y ofrece
+traer esos datos. También puede traerlos con Ctrl+Shift+B > Traer datos de otra carpeta.
 
 Si no abre, abra Diagnosticar Servitotal.py con Python para ver el error.
 También puede escribir en la terminal de esta carpeta:

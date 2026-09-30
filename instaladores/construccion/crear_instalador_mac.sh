@@ -8,7 +8,7 @@ CONSTRUCCION="$RAIZ/instaladores/construccion"
 SALIDA="$RAIZ/instaladores"
 TRABAJO="$(mktemp -d "${TMPDIR:-/tmp}/servitotal-instalador-mac.XXXXXX")"    # carpeta temporal de trabajo (se puede borrar)
 NOMBRE="Servitotal"
-VERSION="${VERSION:-1.7.1}"
+VERSION="${VERSION:-1.7.2}"
 trap 'codigo=$?; if [ "$codigo" -eq 0 ]; then rm -rf "$TRABAJO"; else echo "Construccion fallida. Archivos conservados en: $TRABAJO" >&2; fi' EXIT
 DMG="$SALIDA/Servitotal-Mac-arm64.dmg"
 

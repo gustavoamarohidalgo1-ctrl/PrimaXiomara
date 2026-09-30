@@ -38,8 +38,8 @@
 /instaladores/*
 !/instaladores/Servitotal-Windows-x64.exe
 !/instaladores/Servitotal-Mac-arm64.dmg
-!/instaladores/Servitotal-1.7.1-Windows-portable.zip
-!/instaladores/Servitotal-1.7.1-Windows-Python.zip
+!/instaladores/Servitotal-1.7.2-Windows-portable.zip
+!/instaladores/Servitotal-1.7.2-Windows-Python.zip
 !/instaladores/SHA256SUMS.txt
 !/instaladores/construccion/
 /instaladores/construccion/*
@@ -55,6 +55,7 @@
 !/instaladores/construccion/verificar_portable_windows.py
 !/instaladores/construccion/crear_portable_windows.py
 !/instaladores/construccion/abrir_portable.pyw
+!/instaladores/construccion/arranque_portable.py
 !/instaladores/construccion/abrir_python.pyw
 !/instaladores/construccion/crear_paquete_python.py
 !/instaladores/construccion/verificar_python_windows.py

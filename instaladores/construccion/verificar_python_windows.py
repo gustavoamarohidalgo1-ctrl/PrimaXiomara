@@ -22,13 +22,12 @@ from urllib.request import urlopen
 import uuid
 import zipfile
 
-from verificar_windows import Windows
+from verificar_windows import Windows, huella_publicada
 
 
 URL_PYTHON = "https://www.python.org/ftp/python/3.14.7/python-3.14.7-amd64.exe"
 SHA_PYTHON = "9d9eb2709ef81bf5cd30db3c2096bdbc4ea10087c22e62f27d356b36f6ae9649"
-SHA_ZIP = "ddbf19dbeb0a2f4fe384c292a4d909764bdd34b44e69028911861b31f229c197"
-RAIZ_ZIP = "Servitotal-1.7.1-Python"
+RAIZ_ZIP = "Servitotal-1.7.2-Python"
 ARCHIVOS_ZIP = {
     "Abrir Servitotal.pyw", "Diagnosticar Servitotal.py", "LEEME-INSTALAR.txt",
     "app/agencia.py", "app/contratos_servitotal.py", "app/logo.png",
@@ -39,7 +38,8 @@ TITULO = "Agencia de Empleos “Servitotal”"
 
 def extraer_paquete(archivo, destino, evidencia):
     evidencia["sha256"] = hashlib.sha256(archivo.read_bytes()).hexdigest()
-    if evidencia["sha256"] != SHA_ZIP:
+    evidencia["sha256_esperado"] = huella_publicada(archivo)
+    if evidencia["sha256"] != evidencia["sha256_esperado"]:
         raise RuntimeError("El ZIP no coincide con la entrega de Servitotal preparada")
     esperados = {f"{RAIZ_ZIP}/{ruta}" for ruta in ARCHIVOS_ZIP}
     with zipfile.ZipFile(archivo) as paquete:
@@ -206,11 +206,11 @@ def main():
     parser.add_argument("--zip", type=Path, required=True)
     parser.add_argument("--evidencia", type=Path, default=Path("evidencia-python-windows.json"))
     opciones = parser.parse_args()
-    informe = {"ok": False, "version": "1.7.1", "plataforma": sys.platform,
+    informe = {"ok": False, "version": "1.7.2", "plataforma": sys.platform,
                "fecha_utc": datetime.now(timezone.utc).isoformat(),
                "limite": "No reproduce SmartScreen ni antivirus del equipo receptor.",
                "datos": "Sólo dos arranques sobre una base ficticia en un perfil temporal.",
-               "zip": {"sha256_esperado": SHA_ZIP}, "python": {}, "firma": {},
+               "zip": {}, "python": {}, "firma": {},
                "instalacion": {}, "arranques": []}
     try:
         if sys.platform != "win32" or os.environ.get("GITHUB_ACTIONS") != "true":

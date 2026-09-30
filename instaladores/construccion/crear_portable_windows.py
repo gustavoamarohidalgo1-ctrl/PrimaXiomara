@@ -1,123 +1,121 @@
-"""Construye un ZIP de Servitotal con el runtime del EXE 1.7.1 verificado."""
+"""Construye el ZIP portable de Servitotal para Windows de 64 bits a partir del instalador ya construido.
+
+El ZIP no lleva ningún ejecutable propio ni .bat: «Servitotal.exe» es el pythonw.exe incluido en el instalador
+(firmado por Python Software Foundation) con otro nombre, y un archivo python312._pth hace que ese Python use sólo
+sus propias carpetas. Así Windows no lo trata como un programa desconocido."""
 from pathlib import Path
 import hashlib
 import shutil
+import struct
 import subprocess
+import sys
 import tempfile
 import zipfile
 
 
 RAIZ = Path(__file__).resolve().parents[2]
+AQUI = Path(__file__).resolve().parent
+VERSION = "1.7.2"
 EXE = RAIZ / "instaladores/Servitotal-Windows-x64.exe"
-SALIDA = RAIZ / "instaladores/Servitotal-1.7.1-Windows-portable.zip"
-SHA_EXE = "18b467dca5f9a2c4e64e61fbc75fb938eb21992f4b2d736758e7ccc5f2ab0811"
-NOMBRE = "Servitotal-1.7.1"
+SALIDA = RAIZ / f"instaladores/Servitotal-{VERSION}-Windows-portable.zip"
+NOMBRE = f"Servitotal-{VERSION}"
+FIJA = (2026, 9, 29, 0, 0, 0)     # metadatos fijos: el mismo código produce el mismo ZIP
 
-ABRIR = r'''@echo off
-setlocal
-cd /d "%~dp0" || goto fallar
-if not defined LOCALAPPDATA goto fallar
-if not exist "%~dp0runtime\pythonw.exe" goto fallar
-if not exist "%~dp0app\abrir_portable.pyw" goto fallar
-start "" "%~dp0runtime\pythonw.exe" -I "%~dp0app\abrir_portable.pyw" --datos "%LOCALAPPDATA%\Servitotal"
-if errorlevel 1 goto fallar
-exit /b 0
-:fallar
-echo No se pudo iniciar Servitotal.
-echo Extraiga TODO el ZIP y abra este archivo desde la carpeta extraida.
-echo Si sigue fallando, abra Diagnosticar Servitotal.bat.
-pause
-exit /b 1
-'''
+# Rutas de Python dentro de la carpeta; también activa el modo aislado (sin PYTHONPATH ni paquetes del usuario).
+PTH = "Lib\nDLLs\napp\nimport site\n"
 
-DIAGNOSTICAR = r'''@echo off
-setlocal
-cd /d "%~dp0" || goto fallar
-if not defined LOCALAPPDATA goto fallar
-if not exist "%~dp0runtime\python.exe" goto fallar
-echo Servitotal: comprobacion del inicio.
-echo Esta ventana mostrara los errores si el programa no puede abrirse.
-echo Si se abre Servitotal, cierre el programa para terminar esta comprobacion.
-"%~dp0runtime\python.exe" -I "%~dp0app\abrir_portable.pyw" --datos "%LOCALAPPDATA%\Servitotal"
-set "RESULTADO=%ERRORLEVEL%"
-echo.
-echo Codigo de salida: %RESULTADO%
-pause
-exit /b %RESULTADO%
-:fallar
-echo Falta el Python incluido o la carpeta de datos del usuario.
-echo Extraiga TODO el ZIP antes de abrir Servitotal.
-pause
-exit /b 1
-'''
+LEEME = f"""SERVITOTAL {VERSION} — WINDOWS 10 Y 11 DE 64 BITS (SIN INSTALAR)
 
-LEEME = """SERVITOTAL 1.7.1 — WINDOWS DE 64 BITS
+1. Antes de extraer: clic derecho sobre el ZIP > Propiedades > marque
+   «Desbloquear» (si aparece) > Aceptar.
+2. Clic derecho sobre el ZIP > Extraer todo. Puede extraerlo en Documentos.
+3. Abra la carpeta {NOMBRE} y haga doble clic en Servitotal.exe.
 
-1. Guarde el ZIP. Clic derecho sobre el ZIP > Extraer todo.
-2. Abra la carpeta extraida Servitotal-1.7.1.
-3. Doble clic en Abrir Servitotal.bat.
+Servitotal.exe es el Python oficial (firmado por Python Software Foundation)
+que abre el programa: no hace falta instalar nada ni desactivar protecciones.
+Para tenerlo a mano: clic derecho en Servitotal.exe > Mostrar más opciones >
+Enviar a > Escritorio (crear acceso directo).
 
-Python y las bibliotecas necesarias estan incluidos. Conserve completa esta
-carpeta; puede guardarla, por ejemplo, en Documentos. Abra el programa desde
-la carpeta extraida: no abra el BAT dentro de la vista del ZIP.
+Conserve la carpeta completa. Los datos se guardan en %LOCALAPPDATA%\\Servitotal,
+igual que con el instalador, así que no se pierden al cambiar de versión.
+La primera vez, si encuentra los datos de la versión anterior (agencia.db en
+el Escritorio, Documentos o Descargas), el programa ofrece traerlos. También
+puede traerlos con Ctrl+Shift+B > «Traer datos de otra carpeta…».
 
-Los datos se guardan en %LOCALAPPDATA%\\Servitotal, igual que con el instalador.
-Si ya usa la version instalada, guarde su trabajo y cierrela antes de abrir
-esta version. Los datos de esa carpeta se conservan. Si su version antigua
-guardaba agencia.db junto al programa, cree un respaldo en ella y restaurelo
-desde el panel de respaldos de esta version. Conserve su carpeta anterior.
-
-Si no abre, use Diagnosticar Servitotal.bat y conserve el texto del error.
-Los fallos que alcanzan el lanzador tambien se registran en
+Si no abre, haga doble clic en Diagnosticar Servitotal.exe: muestra el error
+en una ventana. Los fallos también se guardan en
 %LOCALAPPDATA%\\Servitotal\\errores_inicio.log.
 
-Este ZIP no incluye registros reales, bases, contratos generados ni respaldos.
-Es una alternativa de distribucion; Windows o un antivirus todavia pueden
-mostrar avisos o bloquearla. No requiere desactivar las protecciones.
+Este ZIP no incluye registros reales, bases, contratos ni respaldos.
 Origen: https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara
 """
 
+NECESARIOS = ("Servitotal.exe", "Diagnosticar Servitotal.exe", "python312.dll", "python3.dll", "vcruntime140.dll",
+              "vcruntime140_1.dll", "python312._pth", "Lib/sitecustomize.py", "Lib/os.py", "DLLs/_tkinter.pyd",
+              "DLLs/_sqlite3.pyd", "tcl/tcl8.6/init.tcl", "tcl/tk8.6/tk.tcl", "app/agencia.py",
+              "app/contratos_servitotal.py", "app/abrir_portable.pyw", "app/logo.png", "app/icono.ico")
+
+
+def firmado(ruta):
+    """True si el PE lleva una firma Authenticode (entrada 4 del directorio de datos)."""
+    datos = ruta.read_bytes()
+    pe = struct.unpack_from("<I", datos, 0x3C)[0]
+    opcional = pe + 24
+    directorios = opcional + (112 if struct.unpack_from("<H", datos, opcional)[0] == 0x20B else 96)
+    return struct.unpack_from("<II", datos, directorios + 8 * 4)[1] > 0
+
 
 def main():
-    if hashlib.sha256(EXE.read_bytes()).hexdigest() != SHA_EXE:
-        raise RuntimeError("El EXE no coincide con el paquete Servitotal 1.7.1 verificado")
     herramienta = shutil.which("7zz") or shutil.which("7z")
     if not herramienta:
-        raise RuntimeError("Necesita 7-Zip para extraer el runtime del instalador")
+        raise RuntimeError("Necesita 7-Zip (7zz o 7z) para leer el instalador")
     with tempfile.TemporaryDirectory(prefix="servitotal-portable-") as temporal:
         temporal = Path(temporal)
         extraido = temporal / "extraido"
-        subprocess.run([herramienta, "x", "-y", "-o" + str(extraido), str(EXE)],
-                       check=True, capture_output=True)
+        subprocess.run([herramienta, "x", "-y", "-o" + str(extraido), str(EXE)], check=True, capture_output=True)
         payload = extraido / "$_13_"
         carpeta = temporal / NOMBRE
-        carpeta.mkdir()
-        for nombre in ("runtime", "app"):
-            shutil.copytree(payload / nombre, carpeta / nombre)
+        shutil.copytree(payload / "runtime", carpeta)
+        (carpeta / "pythonw.exe").rename(carpeta / "Servitotal.exe")
+        (carpeta / "python.exe").rename(carpeta / "Diagnosticar Servitotal.exe")
+        shutil.copytree(payload / "app", carpeta / "app")
+        (carpeta / "app/iniciar.pyw").unlink()          # es el arranque del instalador
         for nombre in ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico"):
             if (carpeta / "app" / nombre).read_bytes() != (RAIZ / nombre).read_bytes():
                 raise RuntimeError("El instalador no corresponde a la fuente actual: " + nombre)
+        shutil.copy2(AQUI / "abrir_portable.pyw", carpeta / "app/abrir_portable.pyw")
+        shutil.copy2(AQUI / "arranque_portable.py", carpeta / "Lib/sitecustomize.py")
+        (carpeta / "python312._pth").write_bytes(PTH.replace("\n", "\r\n").encode("ascii"))
+        (carpeta / "LEEME-ABRIR.txt").write_bytes(LEEME.replace("\n", "\r\n").encode("utf-8-sig"))
+        for relativa in NECESARIOS:
+            if not (carpeta / relativa).is_file():
+                raise RuntimeError("Falta en el paquete: " + relativa)
         for archivo in carpeta.rglob("*"):
             if archivo.is_symlink():
                 raise RuntimeError("No se admiten enlaces en el paquete")
-            if archivo.is_file() and archivo.suffix.lower() in (".db", ".sqlite", ".sqlite3", ".log", ".csv", ".xlsx", ".pdf"):
-                raise RuntimeError("El paquete contiene un archivo de datos: " + archivo.name)
-        shutil.copy2(Path(__file__).with_name("abrir_portable.pyw"), carpeta / "app/abrir_portable.pyw")
-        for nombre, contenido in (("Abrir Servitotal.bat", ABRIR), ("Diagnosticar Servitotal.bat", DIAGNOSTICAR)):
-            (carpeta / nombre).write_bytes(contenido.replace("\n", "\r\n").encode("ascii"))
-        (carpeta / "LEEME-ABRIR.txt").write_bytes(LEEME.replace("\n", "\r\n").encode("utf-8"))
+            sufijo = archivo.suffix.lower()
+            if archivo.is_file() and sufijo in (".db", ".sqlite", ".sqlite3", ".log", ".csv", ".xlsx", ".pdf", ".bat",
+                                                ".cmd", ".ps1", ".vbs", ".js", ".lnk"):
+                raise RuntimeError("El paquete no debe contener: " + archivo.name)
+            if archivo.is_file() and sufijo in (".exe", ".dll", ".pyd") and not firmado(archivo):
+                raise RuntimeError("Binario sin firma en el paquete: " + str(archivo.relative_to(carpeta)))
         nuevo = temporal / SALIDA.name
         with zipfile.ZipFile(nuevo, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as paquete:
             for archivo in sorted(carpeta.rglob("*")):
                 if archivo.is_file():
-                    paquete.write(archivo, str(archivo.relative_to(temporal)))
+                    info = zipfile.ZipInfo(str(archivo.relative_to(temporal)).replace("\\", "/"), date_time=FIJA)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.external_attr = 0o100644 << 16
+                    paquete.writestr(info, archivo.read_bytes(), compresslevel=6)
         with zipfile.ZipFile(nuevo) as paquete:
             if paquete.testzip() is not None:
                 raise RuntimeError("Fallo de integridad del ZIP")
+            if any(not n.isascii() for n in paquete.namelist()):
+                raise RuntimeError("Los nombres del ZIP deben ser ASCII para el extractor de Windows")
         shutil.copy2(nuevo, SALIDA)
     print(f"ZIP creado: {SALIDA.name} ({SALIDA.stat().st_size} bytes)")
     print("SHA256: " + hashlib.sha256(SALIDA.read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -12,6 +12,12 @@ def main():
     try:
         if sys.platform != "win32":
             raise RuntimeError("Este acceso corresponde a Servitotal para Windows.")
+        if "\\windowsapps\\" in (sys.base_prefix + "\\").lower():
+            # El Python de Microsoft Store guarda en una carpeta privada lo que se escribe en LOCALAPPDATA:
+            # los datos no aparecerían en la versión instalada y se perderían al desinstalar ese Python.
+            raise RuntimeError("Este archivo se abrió con el Python de Microsoft Store, que guarda los datos en una "
+                               "carpeta privada. Instale Python desde python.org (vea LEEME-INSTALAR.txt), o use "
+                               "el instalador Servitotal-Windows-x64.exe o el ZIP portable, que ya traen Python.")
         local = os.environ.get("LOCALAPPDATA")
         if not local or not Path(local).is_absolute():
             raise RuntimeError("Windows no indicó una carpeta LOCALAPPDATA válida para este usuario.")

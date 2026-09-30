@@ -9,7 +9,8 @@ SetCompressor /SOLID lzma
 !define NOMBRE "Servitotal"
 !define CLAVE_DESINSTALAR "Software\Microsoft\Windows\CurrentVersion\Uninstall\Servitotal"
 !define DATOS "$LOCALAPPDATA\${NOMBRE}"
-!define COMANDO_ARGUMENTOS '"$INSTDIR\app\iniciar.pyw" --datos "${DATOS}"'
+; -E -s: el Python incluido no lee PYTHONHOME/PYTHONPATH ni paquetes de otro Python instalado en el equipo.
+!define COMANDO_ARGUMENTOS '-E -s "$INSTDIR\app\iniciar.pyw" --datos "${DATOS}"'
 
 Name "${NOMBRE}"
 OutFile "${SALIDA}"
@@ -77,33 +78,30 @@ Section "Instalar"
   Call ComprobarArchivosEnUso
   Call ComprobarDatosHeredados
 
-  ; Mantener la instalación anterior hasta publicar las tres piezas completas.
+  ; Mantener la instalación anterior hasta publicar las tres piezas completas. Cada cambio de nombre se reintenta:
+  ; el antivirus suele revisar durante unos segundos los archivos recién extraídos y bloquea mover su carpeta.
   IfFileExists "$INSTDIR\runtime\*.*" 0 mover_app
-    ClearErrors
-    Rename "$INSTDIR\runtime" "$Actualizacion\runtime-anterior"
+    !insertmacro RENOMBRAR "$INSTDIR\runtime" "$Actualizacion\runtime-anterior" apartar_runtime
     IfErrors recuperar_anterior
     StrCpy $RuntimeAnterior 1
   mover_app:
   IfFileExists "$INSTDIR\app\*.*" 0 mover_desinstalador
-    ClearErrors
-    Rename "$INSTDIR\app" "$Actualizacion\app-anterior"
+    !insertmacro RENOMBRAR "$INSTDIR\app" "$Actualizacion\app-anterior" apartar_app
     IfErrors recuperar_anterior
     StrCpy $AppAnterior 1
   mover_desinstalador:
   IfFileExists "$INSTDIR\Desinstalar.exe" 0 publicar_runtime
-    ClearErrors
-    Rename "$INSTDIR\Desinstalar.exe" "$Actualizacion\Desinstalar-anterior.exe"
+    !insertmacro RENOMBRAR "$INSTDIR\Desinstalar.exe" "$Actualizacion\Desinstalar-anterior.exe" apartar_desinstalador
     IfErrors recuperar_anterior
     StrCpy $DesinstaladorAnterior 1
   publicar_runtime:
-  ClearErrors
-  Rename "$Actualizacion\runtime" "$INSTDIR\runtime"
+  !insertmacro RENOMBRAR "$Actualizacion\runtime" "$INSTDIR\runtime" publicar_runtime
   IfErrors recuperar_anterior
   StrCpy $RuntimePublicado 1
-  Rename "$Actualizacion\app" "$INSTDIR\app"
+  !insertmacro RENOMBRAR "$Actualizacion\app" "$INSTDIR\app" publicar_app
   IfErrors recuperar_anterior
   StrCpy $AppPublicado 1
-  Rename "$Actualizacion\Desinstalar.exe" "$INSTDIR\Desinstalar.exe"
+  !insertmacro RENOMBRAR "$Actualizacion\Desinstalar.exe" "$INSTDIR\Desinstalar.exe" publicar_desinstalador
   IfErrors recuperar_anterior
   StrCpy $DesinstaladorPublicado 1
 
@@ -128,20 +126,41 @@ Section "Instalar"
 
   recuperar_anterior:
     SetOutPath "$INSTDIR"
-    ClearErrors
-    StrCmp $RuntimePublicado 1 0 +2
-      Rename "$INSTDIR\runtime" "$Actualizacion\runtime"
-    StrCmp $AppPublicado 1 0 +2
-      Rename "$INSTDIR\app" "$Actualizacion\app"
-    StrCmp $DesinstaladorPublicado 1 0 +2
-      Rename "$INSTDIR\Desinstalar.exe" "$Actualizacion\Desinstalar.exe"
-    StrCmp $RuntimeAnterior 1 0 +2
-      Rename "$Actualizacion\runtime-anterior" "$INSTDIR\runtime"
-    StrCmp $AppAnterior 1 0 +2
-      Rename "$Actualizacion\app-anterior" "$INSTDIR\app"
-    StrCmp $DesinstaladorAnterior 1 0 +2
-      Rename "$Actualizacion\Desinstalar-anterior.exe" "$INSTDIR\Desinstalar.exe"
-    IfErrors recuperacion_incompleta
+    StrCpy $R7 0      ; 1 si alguna pieza no se pudo devolver a su sitio
+    StrCmp $RuntimePublicado 1 0 recuperar_app
+      !insertmacro RENOMBRAR "$INSTDIR\runtime" "$Actualizacion\runtime" retirar_runtime
+      IfErrors 0 +2
+        StrCpy $R7 1
+    recuperar_app:
+    StrCmp $AppPublicado 1 0 recuperar_desinstalador
+      !insertmacro RENOMBRAR "$INSTDIR\app" "$Actualizacion\app" retirar_app
+      IfErrors 0 +2
+        StrCpy $R7 1
+    recuperar_desinstalador:
+    StrCmp $DesinstaladorPublicado 1 0 devolver_runtime
+      !insertmacro RENOMBRAR "$INSTDIR\Desinstalar.exe" "$Actualizacion\Desinstalar.exe" retirar_desinstalador
+      IfErrors 0 +2
+        StrCpy $R7 1
+    devolver_runtime:
+    StrCmp $RuntimeAnterior 1 0 devolver_app
+      !insertmacro RENOMBRAR "$Actualizacion\runtime-anterior" "$INSTDIR\runtime" devolver_runtime
+      IfErrors 0 +2
+        StrCpy $R7 1
+    devolver_app:
+    StrCmp $AppAnterior 1 0 devolver_desinstalador
+      !insertmacro RENOMBRAR "$Actualizacion\app-anterior" "$INSTDIR\app" devolver_app
+      IfErrors 0 +2
+        StrCpy $R7 1
+    devolver_desinstalador:
+    StrCmp $DesinstaladorAnterior 1 0 recuperacion_revisada
+      !insertmacro RENOMBRAR "$Actualizacion\Desinstalar-anterior.exe" "$INSTDIR\Desinstalar.exe" devolver_desinstalador
+      IfErrors 0 +2
+        StrCpy $R7 1
+    recuperacion_revisada:
+    StrCmp $R7 1 recuperacion_incompleta
+    StrCmp "$RuntimeAnterior$AppAnterior$DesinstaladorAnterior" "000" 0 +3
+      MessageBox MB_OK|MB_ICONSTOP "No se pudo instalar ${NOMBRE}: Windows o el antivirus no permitieron mover los archivos nuevos.$\r$\n$\r$\nEspere un minuto y vuelva a abrir el instalador. Si se repite, use el ZIP portable de Servitotal." /SD IDOK
+      Goto +2
     MessageBox MB_OK|MB_ICONSTOP "No se pudo actualizar ${NOMBRE}. La instalacion anterior se recupero y sus datos se conservaron." /SD IDOK
     RMDir /r "$Actualizacion"
     SetErrorLevel 3

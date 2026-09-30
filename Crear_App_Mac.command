@@ -90,7 +90,7 @@ try:
         plistlib.dump({"CFBundleName": "Servitotal", "CFBundleDisplayName": "Servitotal",
                        "CFBundleExecutable": "Servitotal", "CFBundleIdentifier": "pe.servitotal.agencia",
                        "CFBundleIconFile": "icono", "CFBundlePackageType": "APPL",
-                       "CFBundleVersion": "1.7.1", "CFBundleShortVersionString": "1.7.1",
+                       "CFBundleVersion": "1.7.2", "CFBundleShortVersionString": "1.7.2",
                        "NSHighResolutionCapable": True, "LSMinimumSystemVersion": minimo}, archivo)
     comprobar_app_cerrada()
     if os.path.exists(app):

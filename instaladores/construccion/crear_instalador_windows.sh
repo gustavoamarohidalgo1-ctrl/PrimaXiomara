@@ -11,7 +11,7 @@ AQUI="$RAIZ/instaladores/construccion"
 SALIDA="$RAIZ/instaladores/Servitotal-Windows-x64.exe"
 TRABAJO="$(mktemp -d "${TMPDIR:-/tmp}/servitotal-instalador-windows.XXXXXX")"
 CACHE="${TMPDIR:-/tmp}/servitotal-instalador-descargas"
-VERSION="${VERSION:-1.7.1}"
+VERSION="${VERSION:-1.7.2}"
 trap 'codigo=$?; if [ "$codigo" -eq 0 ]; then rm -rf "$TRABAJO"; else echo "Construccion fallida. Archivos conservados en: $TRABAJO" >&2; fi' EXIT
 PYVER="3.12.10"     # ultima 3.12 con binarios para Windows
 
@@ -76,10 +76,12 @@ cp -R "$TRABAJO/tcltk/tcl" "$TRABAJO/runtime/tcl"
 # 3) Recortar lo que el programa no usa (pruebas, IDLE, demos, pip...)
 R="$TRABAJO/runtime"
 rm -rf "$R/Lib/test" "$R/Lib/idlelib" "$R/Lib/turtledemo" "$R/Lib/ensurepip" "$R/Lib/site-packages" \
-       "$R/Lib/lib2to3" "$R/Lib/venv" "$R/Lib/tkinter/test" "$R/Lib/unittest/test" "$R/tcl/tk8.6/demos"
+       "$R/Lib/lib2to3" "$R/Lib/venv" "$R/Lib/tkinter/test" "$R/Lib/unittest/test" "$R/tcl/tk8.6/demos" \
+       "$R/tcl/tix8.4.3" "$R/tcl/nmake" "$R/Lib/tkinter/tix.py" "$R/Lib/ctypes/macholib/fetch_macholib.bat"
 find "$R" -name "__pycache__" -type d -prune -exec rm -rf {} +
 find "$R/DLLs" \( -name "_test*.pyd" -o -name "xxlimited*.pyd" -o -name "_ctypes_test.pyd" \) -delete
-find "$R" -name "*.pdb" -delete
+# Sin símbolos ni bibliotecas de enlazado: el programa no los usa y son binarios sin firma que el antivirus revisaría.
+find "$R" \( -name "*.pdb" -o -name "*.lib" \) -delete
 
 # 3b) Precompilar (mas rapido al abrir): sin esto, Windows compila la libreria estandar la primera vez y el
 #     programa entero en CADA apertura. El bytecode de Python 3.12 es el mismo en todos los sistemas; se usa el
@@ -100,12 +102,30 @@ fi
 
 # 4) Comprobar que estan las piezas que el programa necesita antes de empaquetar
 faltan=0
-for f in python.exe pythonw.exe python312.dll vcruntime140.dll DLLs/_tkinter.pyd DLLs/tcl86t.dll DLLs/tk86t.dll \
-         DLLs/_sqlite3.pyd DLLs/sqlite3.dll DLLs/_ctypes.pyd Lib/tkinter/__init__.py Lib/tkinter/ttk.py \
-         Lib/sqlite3/__init__.py Lib/json/__init__.py Lib/html/__init__.py tcl/tcl8.6/init.tcl tcl/tk8.6/tk.tcl; do
+for f in python.exe pythonw.exe python312.dll vcruntime140.dll vcruntime140_1.dll DLLs/_tkinter.pyd DLLs/tcl86t.dll \
+         DLLs/tk86t.dll DLLs/_sqlite3.pyd DLLs/sqlite3.dll DLLs/_ctypes.pyd DLLs/libffi-8.dll Lib/tkinter/__init__.py \
+         Lib/tkinter/ttk.py Lib/sqlite3/__init__.py Lib/json/__init__.py Lib/html/__init__.py tcl/tcl8.6/init.tcl \
+         tcl/tk8.6/tk.tcl; do
   [ -e "$R/$f" ] || { echo "FALTA: $f"; faltan=1; }
 done
 [ $faltan -eq 0 ] || exit 1
+# Todo ejecutable incluido debe llevar la firma Authenticode de su editor (Python Software Foundation):
+# un binario sin firma es lo que Windows y los antivirus bloquean o revisan con más desconfianza.
+python3 - "$R" <<'PYTHON'
+import pathlib, struct, sys
+sin_firma = []
+for ruta in sorted(pathlib.Path(sys.argv[1]).rglob("*")):
+    if ruta.suffix.lower() not in (".exe", ".dll", ".pyd") or not ruta.is_file():
+        continue
+    datos = ruta.read_bytes()
+    pe = struct.unpack_from("<I", datos, 0x3C)[0]
+    opcional = pe + 24
+    directorios = opcional + (112 if struct.unpack_from("<H", datos, opcional)[0] == 0x20B else 96)
+    if struct.unpack_from("<II", datos, directorios + 8 * 4)[1] == 0:   # entrada 4: certificados
+        sin_firma.append(str(ruta.relative_to(sys.argv[1])))
+if sin_firma:
+    sys.exit("Binarios sin firma en el runtime: " + ", ".join(sin_firma))
+PYTHON
 
 # 5) Icono del instalador (sin la imagen PNG de 256 px, que NSIS no admite en su icono)
 python3 - "$RAIZ/icono.ico" "$TRABAJO/instalador.ico" <<'PYTHON'

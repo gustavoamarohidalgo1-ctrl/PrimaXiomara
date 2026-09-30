@@ -10,6 +10,23 @@ Var RuntimePublicado
 Var AppPublicado
 Var DesinstaladorPublicado
 
+; Rename con reintentos durante 30 s. Deja el indicador de error activo sólo si al final no se pudo.
+; Windows no permite mover una carpeta mientras otro proceso (p. ej. el antivirus) tiene abierto un archivo dentro.
+!macro RENOMBRAR ORIGEN DESTINO ID
+  StrCpy $R8 0
+  reintentar_${ID}:
+    ClearErrors
+    Rename "${ORIGEN}" "${DESTINO}"
+    IfErrors 0 renombrado_${ID}
+    IntOp $R8 $R8 + 1
+    IntCmp $R8 60 agotado_${ID} 0 agotado_${ID}
+    Sleep 500
+    Goto reintentar_${ID}
+  agotado_${ID}:
+    SetErrors
+  renombrado_${ID}:
+!macroend
+
 !macro CERROJO_INSTALADOR PREFIJO
 Function ${PREFIJO}.onInit
   ; Evita que dos actualizadores/desinstaladores de la misma marca publiquen a la vez.

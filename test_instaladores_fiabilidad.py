@@ -50,8 +50,8 @@ class InstaladoresProtegidos(unittest.TestCase):
                 cadenas = {n.args[0].value: n.args[1].value for n in ast.walk(metadata)
                            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "StringStruct"}
                 self.assertEqual(cadenas["ProductName"], marca)
-                self.assertEqual(cadenas["ProductVersion"], "1.7.1")
-                self.assertEqual(cadenas["FileVersion"], "1.7.1")
+                self.assertEqual(cadenas["ProductVersion"], "1.7.2")
+                self.assertEqual(cadenas["FileVersion"], "1.7.2")
                 bat = (proyecto / "Crear_EXE.bat").read_bytes()
                 self.assertEqual(bat.count(b"\n"), bat.count(b"\r\n"))
                 texto = bat.decode("ascii")
@@ -97,7 +97,7 @@ class InstaladoresProtegidos(unittest.TestCase):
                 salida = temporal / "fixture.exe"
                 compilacion = subprocess.run([
                     compilador, "-V3", f"-DRAIZ={proyecto}", f"-DAPLICACION={app}",
-                    f"-DRUNTIME={runtime}", "-DVERSION=1.7.1", f"-DSALIDA={salida}",
+                    f"-DRUNTIME={runtime}", "-DVERSION=1.7.2", f"-DSALIDA={salida}",
                     f"-DICONO={icono}", str(guion)], capture_output=True, text=True,
                     env={**os.environ, "LC_ALL": "en_US.UTF-8"}, timeout=30)
                 self.assertEqual(compilacion.returncode, 0, compilacion.stdout + compilacion.stderr)
@@ -113,7 +113,9 @@ class InstaladoresProtegidos(unittest.TestCase):
                 self.assertNotIn('RMDir /r "$INSTDIR\\runtime"', instalar)
                 self.assertNotIn('RMDir /r "$INSTDIR\\app"', instalar)
                 self.assertLess(instalar.index("Call ComprobarArchivosEnUso"), instalar.index("File /r"))
-                self.assertIn('Rename "$INSTDIR\\runtime" "$Actualizacion\\runtime-anterior"', instalar)
+                self.assertIn('!insertmacro RENOMBRAR "$INSTDIR\\runtime" "$Actualizacion\\runtime-anterior"', instalar)
+                self.assertNotIn("\n  Rename ", instalar)          # todo cambio de nombre pasa por los reintentos
+                self.assertIn("-E -s", fuente.split("!define COMANDO_ARGUMENTOS", 1)[1].splitlines()[0])
                 self.assertIn('IfErrors recuperar_anterior', instalar)
                 desinstalar = fuente.split('Section "Uninstall"', 1)[1]
                 self.assertLess(desinstalar.index("Call un.ComprobarArchivosEnUso"), desinstalar.index("RMDir /r"))

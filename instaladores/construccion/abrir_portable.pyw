@@ -33,7 +33,7 @@ def main():
             mensaje += f"El detalle se guardó en:\n{registro}\n\n"
         except OSError:
             mensaje += "No se pudo guardar el detalle del error.\n\n"
-        mensaje += "Abra Diagnosticar Servitotal.bat para ver el error en pantalla."
+        mensaje += "Abra Diagnosticar Servitotal.exe (en la misma carpeta) para ver el error en pantalla."
         if sys.stderr is not None:
             sys.stderr.write(detalle)
         try:

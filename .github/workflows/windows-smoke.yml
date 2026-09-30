@@ -8,15 +8,20 @@ permissions:
 
 jobs:
   instalador:
-    runs-on: windows-2022
-    timeout-minutes: 10
+    name: Instalador en ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
     steps:
       - name: Obtener archivos de Servitotal
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
 
-      - name: Comprobar asistente, instalacion y arranque
+      - name: Instalar sobre 1.7.1, abrir, traer datos anteriores y desinstalar
         shell: pwsh
         run: python instaladores/construccion/verificar_windows.py --exe instaladores/Servitotal-Windows-x64.exe --evidencia evidencia-windows.json
 
@@ -24,20 +29,34 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: evidencia-servitotal-windows
+          name: evidencia-servitotal-windows-${{ matrix.os }}
           path: evidencia-windows.json
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Comprobar ZIP y lanzador portable
+  portable:
+    name: ZIP portable en ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - name: Obtener archivos de Servitotal
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Abrir Servitotal.exe del ZIP, traer datos anteriores y diagnosticar
         shell: pwsh
-        run: python instaladores/construccion/verificar_portable_windows.py --zip instaladores/Servitotal-1.7.1-Windows-portable.zip --evidencia evidencia-portable-windows.json
+        run: python instaladores/construccion/verificar_portable_windows.py --zip instaladores/Servitotal-1.7.2-Windows-portable.zip --evidencia evidencia-portable-windows.json
 
       - name: Conservar evidencia del ZIP
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: evidencia-servitotal-portable-windows
+          name: evidencia-servitotal-portable-windows-${{ matrix.os }}
           path: evidencia-portable-windows.json
           if-no-files-found: warn
           retention-days: 14
