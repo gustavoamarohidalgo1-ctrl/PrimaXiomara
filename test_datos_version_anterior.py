@@ -116,6 +116,15 @@ class BusquedaDeBasesAnteriores(unittest.TestCase):
         self.assertEqual(len(claves), len(set(claves)))
 
 
+    def test_con_varias_bases_prefiere_la_de_servitotal_y_avisa_de_las_otras(self):
+        otra = base_anterior(self.escritorio / "Servicio Exclusivo" / "agencia.db", clientes=("Otra agencia",))
+        propia = base_anterior(self.escritorio / "Agencia Servitotal" / "agencia.db")
+        os.utime(propia, (1_700_000_000, 1_700_000_000))          # la de otra agencia es más reciente
+        oferta = agencia.buscar_base_anterior(self.actual, [str(self.escritorio)])
+        self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(propia))
+        self.assertEqual([os.path.normcase(r) for r in oferta["otras"]], [os.path.normcase(otra)])
+
+
 class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
     def setUp(self):
         try:
@@ -174,6 +183,18 @@ class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
         self.assertIn(original, self.mensajes[0][1])
         self.comprobar_traidos(original, antes)
         self.assertEqual(self.mensajes[-1][0], "Datos recuperados")
+        self.assertNotIn("También hay otros", self.mensajes[0][1])
+
+    def test_la_oferta_menciona_otras_bases_encontradas(self):
+        base_anterior(self.base / "Escritorio" / "Agencia Servitotal" / "agencia.db")
+        otra = base_anterior(self.base / "Escritorio" / "Otro programa" / "agencia.db", clientes=("Otra",))
+        self.mensajes.clear()
+        with mock.patch.object(agencia.messagebox, "askyesno", side_effect=lambda titulo, texto, **k:
+                               (self.mensajes.append((titulo, texto)), False)[1]):
+            self.app.ofrecer_recuperacion(agencia.buscar_base_anterior(carpetas=[str(self.base / "Escritorio")]))
+        self.assertIn(otra, self.mensajes[0][1])
+        self.assertIn("Traer datos de otra carpeta", self.mensajes[0][1])
+        self.assertEqual(self.app.db.todos("clientes"), [])            # «No»: no se trae nada
 
     def test_el_panel_de_copias_trae_un_archivo_elegido_y_rechaza_otro(self):
         original = base_anterior(self.base / "USB" / "agencia.db")

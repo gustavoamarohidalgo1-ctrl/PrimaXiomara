@@ -27,8 +27,21 @@ Var DesinstaladorPublicado
   renombrado_${ID}:
 !macroend
 
+!include "LogicLib.nsh"
+!include "x64.nsh"
+!include "WinVer.nsh"
+
 !macro CERROJO_INSTALADOR PREFIJO
 Function ${PREFIJO}.onInit
+  !if "${PREFIJO}" == ""
+    ; El Python incluido es de 64 bits y necesita Windows 8.1 o posterior: avisar en vez de un error de DLL.
+    ${IfNot} ${RunningX64}
+    ${OrIfNot} ${AtLeastWin8.1}
+      MessageBox MB_OK|MB_ICONSTOP "${NOMBRE} necesita Windows 10 u 11 de 64 bits. No se modifico nada." /SD IDOK
+      SetErrorLevel 5
+      Abort
+    ${EndIf}
+  !endif
   ; Evita que dos actualizadores/desinstaladores de la misma marca publiquen a la vez.
   System::Call 'kernel32::CreateMutexW(p 0, i 0, w "Local\Instalador.${NOMBRE}") p .r0 ?e'
   Pop $1

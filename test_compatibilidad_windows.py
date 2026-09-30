@@ -125,7 +125,12 @@ class BasesEnOtrasRutas(unittest.TestCase):
                 con.execute("CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT)")
                 con.execute("INSERT INTO clientes (nombre) VALUES ('Ana')")
             self.assertEqual(agencia.contar_datos(ruta)["clientes"], 1)
-            self.assertEqual(agencia.contar_datos(os.path.relpath(ruta))["clientes"], 1)
+            anterior = os.getcwd()
+            os.chdir(carpeta)                       # ruta relativa (en Windows la carpeta temporal puede ser otra unidad)
+            try:
+                self.assertEqual(agencia.contar_datos("agencia vieja #2.db")["clientes"], 1)
+            finally:
+                os.chdir(anterior)
             self.assertIsNone(agencia.contar_datos(ruta + ".no-existe"))
             self.assertFalse(os.path.exists(ruta + ".no-existe"))
 

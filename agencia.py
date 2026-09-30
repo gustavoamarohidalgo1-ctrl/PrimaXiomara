@@ -4728,6 +4728,12 @@ class App:
                         f"trabajadoras y {copia['colocaciones']} asignaciones (último cambio: "
                         f"{copia['fecha']:%d/%m/%Y a las %H:%M}).\n\n¿Desea traerlos ahora a esta versión? "
                         "El archivo de la versión anterior no se modifica.")
+            if copia.get("otras"):
+                atajo = "Cmd" if sys.platform == "darwin" else "Ctrl"
+                pregunta += ("\n\nTambién hay otros archivos agencia.db (por ejemplo de otro programa):\n"
+                             + "\n".join(copia["otras"][:3]) + ("\n…" if len(copia["otras"]) > 3 else "")
+                             + f"\n\nSi los de arriba no son los datos de {AGENCIA_ESLOGAN}, pulse No y elija el "
+                             f"correcto con {atajo}+Shift+B → «Traer datos de otra carpeta…».")
             titulo = "Traer los datos de la versión anterior"
         else:
             pregunta = (f"Este programa no tiene datos, pero se encontró una copia de seguridad del "
@@ -5856,7 +5862,9 @@ def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_ca
         if datos is not None and any(datos.values()):
             copias.append({"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Versión anterior",
                            "donde": os.path.dirname(ruta), "fecha": fecha, **datos})
-    return sorted(copias, key=lambda c: c["fecha"], reverse=True)
+    # Primero las que están en una carpeta de Servitotal: en el mismo equipo puede estar el programa de otra agencia,
+    # que también guarda un agencia.db. Luego, la más reciente.
+    return sorted(copias, key=lambda c: (AGENCIA_CARPETA_DATOS.lower() in c["ruta"].lower(), c["fecha"]), reverse=True)
 
 
 def buscar_base_anterior(ruta=None, carpetas=None):
@@ -5865,9 +5873,12 @@ def buscar_base_anterior(ruta=None, carpetas=None):
     if hay_datos(ruta):
         return None
     try:
-        return next(iter(buscar_bases_anteriores(carpetas, actual=ruta)), None)
+        encontradas = buscar_bases_anteriores(carpetas, actual=ruta)
     except Exception:   # buscar es una ayuda: nunca debe impedir abrir el programa
         return None
+    if not encontradas:
+        return None
+    return dict(encontradas[0], otras=[c["ruta"] for c in encontradas[1:]])
 
 
 def restaurar_si_esta_danada(ruta=None, carpeta=None):
