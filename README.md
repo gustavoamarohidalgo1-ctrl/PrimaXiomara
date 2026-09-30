@@ -42,9 +42,9 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 - **«Windows protegió su PC» (SmartScreen):** si descargó el archivo de [este repositorio oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara) y confía en su procedencia, pulse **Más información** y **Ejecutar de todas formas**. Son los pasos que documenta [Microsoft para aplicaciones nuevas](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/publish-first-app#step-6-handle-smartscreen-for-new-apps).
 - **«Control inteligente de aplicaciones bloqueó…»:** ese aviso de Windows 11 no ofrece continuar para programas sin firma. Use el ZIP recomendado. No hace falta desactivar ninguna protección.
 
-Para actualizar, cierre Servitotal y abra el instalador nuevo: la instalación conserva la carpeta de datos. Si el programa está abierto, el instalador se detiene sin cambiar nada. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior.
+Para actualizar, abra el instalador nuevo: la instalación conserva la carpeta de datos. Si Servitotal está abierto, el instalador pide cerrarlo y pulsar Reintentar, sin cambiar nada mientras tanto. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior.
 
-En **Propiedades**, el instalador 1.7.2 completo ocupa **11.799.297 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.7.2 completo ocupa **11.810.664 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
@@ -77,7 +77,7 @@ Este repositorio contiene únicamente el programa Servitotal y sus instaladores.
 
 ## Pruebas
 
-Las **339 pruebas de Servitotal** pasan en macOS con Python 3.12 y en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36733810288) con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits y con el mismo Python incluido en el instalador. Usan registros ficticios y bases temporales. Con Python que incluya Tk y una sesión gráfica disponible:
+Las **346 pruebas de Servitotal** pasan en macOS con Python 3.12 y en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737030968) con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits y con el mismo Python incluido en el instalador. Usan registros ficticios y bases temporales. Con Python que incluya Tk y una sesión gráfica disponible:
 
 ```sh
 python -m unittest discover -v
@@ -85,18 +85,19 @@ python -m unittest discover -v
 
 Las pruebas del constructor de Windows requieren `makensis`; las del lanzador de Mac, macOS.
 
-Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36733803675), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
+Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737794724), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
 
 - **Instalador:**
   - Se instaló sobre la versión 1.7.1 publicada, pulsando Siguiente, Instalar y Terminar en el asistente; el programa se abrió solo, al frente de las demás ventanas.
   - Microsoft Defender actualizado no detectó nada en el instalador, en lo instalado ni en el ZIP.
-  - Se negó a actualizar mientras la versión anterior estaba abierta, sin tocar nada.
+  - Con la versión anterior abierta, avisó y ofreció Reintentar; tras cerrarla, la instalación terminó bien.
+  - Con la protección en tiempo real de Microsoft Defender activada.
   - Abrió el programa con el mismo acceso directo del Escritorio.
   - Trajo una base ficticia de la versión anterior respondiendo «Sí» a su aviso.
   - Abrió con variables de otro Python (`PYTHONHOME`, `PYTHONPATH`, `TCL_LIBRARY`).
   - Se desinstaló conservando los datos.
 - **ZIP portable:** verificó la firma de Python Software Foundation en `Servitotal.exe` y repitió la apertura, los datos anteriores, el entorno ajeno y el diagnóstico.
-- **Python oficial:** la [prueba con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36733815890) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
+- **Python oficial:** la [prueba con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737036079) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
 
 Ninguna de estas pruebas reproduce SmartScreen, el Control inteligente de aplicaciones ni el antivirus del equipo de una usuaria. Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py) y [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) modifican accesos, registro y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero.
 
