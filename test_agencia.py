@@ -7,6 +7,7 @@ import struct
 import sys
 import sqlite3
 import tempfile
+import threading
 import unittest
 from datetime import date, datetime, timedelta
 from unittest import mock
@@ -1076,14 +1077,21 @@ class ProgramaConDatosProtegidos(unittest.TestCase):
         self.clientes = self.app.clientes
 
     def tearDown(self):
-        for parche in reversed(self.parches):
-            parche.stop()
-        restablecer_areas()
+        # Cerrar la ventana y esperar la copia de fondo ANTES de quitar los parches: después, una copia pendiente
+        # usaría las carpetas reales y un aviso real (sin parche) esperaría para siempre a que alguien lo cierre.
         try:
-            self.root.update()      # deja terminar las tareas pendientes antes de destruir la ventana
+            for temporizador in self.root.tk.call("after", "info"):
+                self.root.tk.call("after", "cancel", temporizador)
+            self.root.update()
             self.root.destroy()
         except agencia.tk.TclError:
             pass
+        for hilo in threading.enumerate():
+            if hilo.name == "copia-de-seguridad":
+                hilo.join(60)
+        for parche in reversed(self.parches):
+            parche.stop()
+        restablecer_areas()
         self.temporal.cleanup()
 
     def escribir_cliente(self, nombre="Ana", telefono="999"):
