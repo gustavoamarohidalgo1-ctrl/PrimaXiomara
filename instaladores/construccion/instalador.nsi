@@ -26,7 +26,7 @@ VIAddVersionKey /LANG=1034 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 
 !include "MUI2.nsh"
-!addincludedir "${RAIZ}/instaladores/construccion"   ; makensis de Windows no separa rutas con / en !include
+!addincludedir "${RAIZ}\instaladores\construccion"   ; makensis de Windows no acepta / en estas rutas
 !include "archivos_en_uso.nsh"
 !define MUI_ICON "${ICONO}"
 !define MUI_UNICON "${ICONO}"
@@ -66,10 +66,10 @@ Section "Instalar"
   Delete "$Actualizacion"
   CreateDirectory "$Actualizacion"
   SetOutPath "$Actualizacion\runtime"
-  File /r "${RUNTIME}/*"
+  File /r "${RUNTIME}\*"
   IfErrors fallo_preparacion
   SetOutPath "$Actualizacion\app"
-  File /r "${APLICACION}/*"
+  File /r "${APLICACION}\*"
   IfErrors fallo_preparacion
   WriteUninstaller "$Actualizacion\Desinstalar.exe"
   IfErrors fallo_preparacion
