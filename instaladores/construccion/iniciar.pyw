@@ -40,7 +40,7 @@ def main():
             sys.stderr.write(detalle)
         try:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, mensaje, "Servitotal — No se pudo abrir", 0x10)
+            ctypes.windll.user32.MessageBoxW(None, mensaje, "Servitotal — No se pudo abrir", 0x50010)   # al frente
         except Exception:
             pass
         return 1

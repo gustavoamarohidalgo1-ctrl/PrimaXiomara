@@ -1,4 +1,4 @@
-778c5cbdf2a20f7e3ed0c093feac19277901ee7a2993935b9695070f90512935  Servitotal-Windows-x64.exe
+999c559eb593c2192cc12e4d9770c634eb137787d1673c11cc4313eacdd4de23  Servitotal-Windows-x64.exe
 fca68c4292f3e57a16220bf0e196266bc2a1c8da49b2de9e0ecdf8cc811bd8ce  Servitotal-Mac-arm64.dmg
-1e14a40afe57e56cef8b2751be1e005f74062c8d91bb55b7bdbce9f83bacddb8  Servitotal-1.7.2-Windows-portable.zip
-1f918d8cccf7c5057af7b8b7e86614c113449b07fd057b814faae663fcba5e86  Servitotal-1.7.2-Windows-Python.zip
+500d006f48e12afa8dbd753fb0125d156824b83ee01dd586f2a4024a15ab998b  Servitotal-1.7.2-Windows-portable.zip
+de95a2eadb26400dd8971202a65de8a8a2ba28a46346855b2f3393b909ab8478  Servitotal-1.7.2-Windows-Python.zip

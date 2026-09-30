@@ -262,5 +262,31 @@ class PythonDeMicrosoftStore(unittest.TestCase):
         self.assertNotIn("tcl/tk", mensajes[0])
 
 
+@unittest.skipUnless(sys.platform == "win32", "el cerrojo de una sola ventana es de Windows")
+class UnaSolaVentana(unittest.TestCase):
+    def test_un_segundo_clic_trae_al_frente_la_ventana_abierta(self):
+        try:
+            root = agencia.tk.Tk()
+        except agencia.tk.TclError:
+            self.skipTest("no hay pantalla disponible")
+        with tempfile.TemporaryDirectory(prefix="una ventana ñ ") as datos:
+            try:
+                root.title(f"{agencia.AGENCIA_NOMBRE} “{agencia.AGENCIA_ESLOGAN}”")
+                root.update()
+                with mock.patch.object(agencia, "CARPETA", datos):
+                    self.assertFalse(agencia.otra_ventana_abierta())       # la primera se abre normalmente
+                    self.assertFalse(agencia.otra_ventana_abierta())       # el mismo proceso no se bloquea
+                segunda = subprocess.run([sys.executable, "-c", "import agencia, sys; "
+                                          "sys.exit(0 if agencia.otra_ventana_abierta() else 1)"],
+                                         cwd=RAIZ, env=entorno_limpio(AGENCIA_DATOS=datos), timeout=60)
+                self.assertEqual(segunda.returncode, 0)                    # la segunda sólo trae la primera
+                otra = subprocess.run([sys.executable, "-c", "import agencia, sys; "
+                                       "sys.exit(0 if agencia.otra_ventana_abierta() else 1)"],
+                                      cwd=RAIZ, env=entorno_limpio(AGENCIA_DATOS=datos + " otra"), timeout=60)
+                self.assertEqual(otra.returncode, 1)                       # otros datos: otra ventana permitida
+            finally:
+                root.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -105,13 +105,18 @@ Function ${PREFIJO}ComprobarArchivosEnUso
     System::Store "l"
     Pop $0
     StrCmp $0 0 libre
-    StrCmp $0 1 0 no_comprobado
+    StrCmp $0 1 ocupado_aviso
+    ; 2: Windows no pudo consultar (Restart Manager). Otra forma, sin plugins: una DLL cargada por un programa
+    ; abierto no se puede abrir para escribir. Abrirla en modo "a" no cambia el archivo.
+    IfFileExists "$INSTDIR\runtime\python312.dll" 0 libre
+    ClearErrors
+    FileOpen $0 "$INSTDIR\runtime\python312.dll" a
+    IfErrors ocupado_aviso
+    FileClose $0
+    Goto libre
+  ocupado_aviso:
     ; Reintentar sin salir del asistente; si la ventana no se ve (quedó oculta), reiniciar la cierra.
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${NOMBRE} esta abierto. Guarde su trabajo, cierre ${NOMBRE} y pulse Reintentar.$\r$\n$\r$\nSi no ve la ventana de ${NOMBRE}, reinicie la computadora y vuelva a abrir este instalador.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDCANCEL IDRETRY volver_a_comprobar
-    SetErrorLevel 2
-    Abort
-  no_comprobado:
-    MessageBox MB_RETRYCANCEL|MB_ICONSTOP "Windows no pudo comprobar si ${NOMBRE} esta abierto. Cierre ${NOMBRE} y pulse Reintentar, o reinicie la computadora y vuelva a abrir este instalador.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDCANCEL IDRETRY volver_a_comprobar
     SetErrorLevel 2
     Abort
   libre:

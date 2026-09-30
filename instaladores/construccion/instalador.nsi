@@ -34,11 +34,15 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Instalar ${NOMBRE}"
 !define MUI_WELCOMEPAGE_TEXT "Este asistente instalará ${NOMBRE} en su computadora.$\r$\n$\r$\nNo necesita instalar nada más: el programa trae todo lo que usa.$\r$\n$\r$\nSus datos (clientes, trabajadoras, contratos) se guardan aparte y no se pierden al actualizar o desinstalar.$\r$\n$\r$\nHaga clic en Siguiente para continuar."
+!define MUI_FINISHPAGE_TEXT "${NOMBRE} quedo instalado.$\r$\n$\r$\nAl pulsar Terminar se abrira solo; la primera vez puede tardar unos segundos. Despues abralo con el icono ${NOMBRE} del Escritorio."
 !define MUI_FINISHPAGE_RUN ""
 !define MUI_FINISHPAGE_RUN_FUNCTION AbrirPrograma
 !define MUI_FINISHPAGE_RUN_TEXT "Abrir ${NOMBRE} ahora"
 
 !insertmacro MUI_PAGE_WELCOME
+; Al pulsar «Instalar» se comprueba primero si Servitotal está abierto: si la persona cancela, el asistente se queda
+; en esta página (Abort en una función «leave») en vez de terminar como instalación anulada.
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE ComprobarAntesDeInstalar
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -46,12 +50,19 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Spanish"
 
+Function ComprobarAntesDeInstalar
+  Call ComprobarArchivosEnUso
+FunctionEnd
+
 Function AbrirPrograma
   SetOutPath "$INSTDIR\app"
   ; El instalador está al frente y se cierra enseguida: sin este permiso Windows puede abrir el programa detrás de
   ; las demás ventanas y parecería que no se abrió nada.
   System::Call 'user32::AllowSetForegroundWindow(i -1)'
+  ClearErrors
   Exec '"$INSTDIR\runtime\pythonw.exe" ${COMANDO_ARGUMENTOS}'
+  IfErrors 0 +2
+    MessageBox MB_OK|MB_ICONEXCLAMATION "${NOMBRE} quedo instalado, pero Windows no permitio abrirlo desde aqui.$\r$\n$\r$\nAbralo con el icono ${NOMBRE} del Escritorio o del menu Inicio." /SD IDOK
 FunctionEnd
 
 Section "Instalar"
@@ -161,22 +172,19 @@ Section "Instalar"
         StrCpy $R7 1
     recuperacion_revisada:
     StrCmp $R7 1 recuperacion_incompleta
-    StrCmp "$RuntimeAnterior$AppAnterior$DesinstaladorAnterior" "000" 0 +3
-      MessageBox MB_OK|MB_ICONSTOP "No se pudo instalar ${NOMBRE}: Windows o el antivirus no permitieron mover los archivos nuevos.$\r$\n$\r$\nEspere un minuto y vuelva a abrir el instalador. Si se repite, use el ZIP portable de Servitotal." /SD IDOK
-      Goto +2
-    MessageBox MB_OK|MB_ICONSTOP "No se pudo actualizar ${NOMBRE}. La instalacion anterior se recupero y sus datos se conservaron." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "No se pudo completar la instalacion de ${NOMBRE} porque Windows o el antivirus tenian ocupados sus archivos. No se cambio nada y sus datos estan a salvo.$\r$\n$\r$\nReinicie la computadora y vuelva a abrir este instalador." /SD IDOK
     RMDir /r "$Actualizacion"
     SetErrorLevel 3
     Abort
   recuperacion_incompleta:
-    MessageBox MB_OK|MB_ICONSTOP "La actualizacion fallo y Windows no permitio recuperar todos los archivos. Sus datos permanecen aparte.$\r$\n$\r$\nSe conserva la instalacion anterior en:$\r$\n$Actualizacion" /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "No se pudo completar la instalacion de ${NOMBRE}. Sus datos estan a salvo.$\r$\n$\r$\nReinicie la computadora y vuelva a abrir este instalador para terminarla.$\r$\n$\r$\n(Copia de los archivos anteriores: $Actualizacion)" /SD IDOK
     SetErrorLevel 3
     Abort
   fallo_preparacion:
     SetOutPath "$INSTDIR"
     StrCmp $Actualizacion "" +2
       RMDir /r "$Actualizacion"
-    MessageBox MB_OK|MB_ICONSTOP "No se pudieron preparar los archivos nuevos. La instalacion anterior y sus datos se conservaron." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "No se pudieron preparar los archivos de ${NOMBRE}: puede faltar espacio en el disco o el antivirus los bloqueo. No se cambio nada y sus datos estan a salvo.$\r$\n$\r$\nReinicie la computadora y vuelva a abrir este instalador." /SD IDOK
     SetErrorLevel 3
     Abort
   instalacion_terminada:

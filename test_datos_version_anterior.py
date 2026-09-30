@@ -136,7 +136,12 @@ class BusquedaDeBasesAnteriores(unittest.TestCase):
             _, oferta = agencia.preparar_base()
         self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(anterior))
         self.assertEqual(os.path.normcase(oferta["alternativa"]["ruta"]), os.path.normcase(copia))
-        os.utime(anterior, (1_600_000_000, 1_600_000_000))        # ahora la copia es la más reciente
+        os.utime(anterior, (1_600_000_000, 1_600_000_000))        # la copia es más reciente, pero con menos datos:
+        with self.preparar(externa=str(externa)):                 # una prueba casi vacía no tapa los datos reales
+            _, oferta = agencia.preparar_base()
+        self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(anterior))
+        os.remove(copia)
+        copia = base_anterior(externa / "agencia-20260930.db", clientes=("Ana", "Beto"))   # mismos datos, más nueva
         with self.preparar(externa=str(externa)):
             _, oferta = agencia.preparar_base()
         self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(copia))
@@ -276,9 +281,7 @@ class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
             listo.wait(5)                       # una búsqueda lenta no bloquea la ventana
             return original(*a, **k)
 
-        with mock.patch.object(agencia, "BUSCAR_VERSION_ANTERIOR", True), \
-                mock.patch.object(agencia, "carpetas_personales", lambda: [str(self.base / "Escritorio")]), \
-                mock.patch.object(agencia, "buscar_bases_anteriores", lenta):
+        with self.busqueda_en(self.base / "Escritorio"), mock.patch.object(agencia, "buscar_bases_anteriores", lenta):
             self.app.ofrecer_datos_al_abrir(None)
             self.root.update()
             self.assertEqual(self.mensajes, [])             # todavía buscando: la ventana sigue libre
@@ -290,6 +293,60 @@ class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
                 time.sleep(0.05)
         self.assertEqual(self.mensajes[0][0], "Traer los datos de la versión anterior")
         self.assertEqual([c["nombre"] for c in self.app.db.todos("clientes")], ["Clienta ficticia Ñuñoa"])
+
+    def busqueda_en(self, carpeta):
+        from contextlib import ExitStack
+        pila = ExitStack()
+        pila.enter_context(mock.patch.object(agencia, "BUSCAR_VERSION_ANTERIOR", True))
+        pila.enter_context(mock.patch.object(agencia, "carpetas_personales", lambda: [str(carpeta)]))
+        pila.enter_context(mock.patch.object(agencia, "unidades_locales", lambda: []))
+        return pila
+
+    def esperar_mensaje(self, cantidad=1, segundos=10):
+        import time
+        limite = time.monotonic() + segundos
+        while len(self.mensajes) < cantidad and time.monotonic() < limite:
+            self.root.update()
+            time.sleep(0.05)
+        self.root.update()
+
+    def test_con_una_prueba_hecha_en_1_7_1_se_ofrecen_una_vez_los_datos_anteriores_mas_completos(self):
+        self.app.db.insertar("clientes", {"nombre": "Prueba 1.7.1", "telefono": "1"})
+        base_anterior(self.base / "Escritorio" / "Agencia" / "agencia.db", clientes=("Ana", "Beto", "Carla"))
+        with self.busqueda_en(self.base / "Escritorio"):
+            self.app.ofrecer_datos_al_abrir(None)
+            self.esperar_mensaje(2)
+        self.assertEqual(self.mensajes[0][0], "Traer los datos de la versión anterior")
+        self.assertIn("Este programa tiene 1 clientes", self.mensajes[0][1])
+        self.assertIn("Tienen 3 clientes", self.mensajes[0][1])
+        self.assertEqual(sorted(c["nombre"] for c in self.app.db.todos("clientes")), ["Ana", "Beto", "Carla"])
+        previas = [c for c in agencia.listar_copias([(self.respaldos, "Programa")]) if c["tipo"] == "Antes de restaurar"]
+        self.assertEqual(previas[0]["clientes"], 1)                       # la prueba quedó guardada
+        self.mensajes.clear()
+        with self.busqueda_en(self.base / "Escritorio"):                  # la próxima vez no vuelve a preguntar
+            self.app.ofrecer_datos_al_abrir(None)
+            self.esperar_mensaje(segundos=3)
+        self.assertEqual(self.mensajes, [])
+
+    def test_si_no_encuentra_nada_pregunta_una_sola_vez_y_puede_elegir_el_archivo(self):
+        (self.base / "Escritorio").mkdir()
+        otra = base_anterior(self.base / "D" / "Agencia vieja" / "agencia.db")     # fuera de donde se busca
+        respuestas = iter([True, True])
+        with self.busqueda_en(self.base / "Escritorio"), \
+                mock.patch.object(agencia.messagebox, "askyesno", side_effect=lambda titulo, texto, **k:
+                                  (self.mensajes.append((titulo, texto)), next(respuestas))[1]), \
+                mock.patch("tkinter.filedialog.askopenfilename", return_value=otra) as elegir:
+            self.app.ofrecer_datos_al_abrir(None)
+            self.esperar_mensaje(3)
+        self.assertEqual(self.mensajes[0][0], agencia.TITULO_PREGUNTA_ANTERIOR)
+        self.assertEqual(elegir.call_args.kwargs["initialdir"], agencia.carpeta_escritorio())
+        self.assertEqual([c["nombre"] for c in self.app.db.todos("clientes")], ["Clienta ficticia Ñuñoa"])
+        self.app.db.eliminar("clientes", self.app.db.todos("clientes")[0]["id"])
+        self.mensajes.clear()
+        with self.busqueda_en(self.base / "Escritorio"):                  # vacía otra vez, pero ya respondió
+            self.app.ofrecer_datos_al_abrir(None)
+            self.esperar_mensaje(segundos=3)
+        self.assertEqual(self.mensajes, [])
 
     def test_si_dice_no_a_la_copia_se_le_ofrece_la_version_anterior(self):
         anterior = base_anterior(self.base / "Escritorio" / "Agencia" / "agencia.db")

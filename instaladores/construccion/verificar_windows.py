@@ -35,7 +35,9 @@ URL_ANTERIOR = ("https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/"
                 "3a9e0a944c071790656e3b511c3f67bd7249363c/instaladores/Servitotal-Windows-x64.exe")
 SHA256_ANTERIOR = "18b467dca5f9a2c4e64e61fbc75fb938eb21992f4b2d736758e7ccc5f2ab0811"
 CLAVE_DESINSTALAR = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Servitotal"
-WM_CLOSE, WM_COMMAND, IDYES, BM_GETCHECK = 0x0010, 0x0111, 6, 0x00F0
+WM_CLOSE, WM_COMMAND, IDYES, IDNO, BM_GETCHECK = 0x0010, 0x0111, 6, 7, 0x00F0
+# Primera apertura sin datos anteriores encontrados: el programa pregunta una sola vez (se responde No).
+PREGUNTA_ANTERIOR = "¿Tenía datos en la versión anterior?"
 MARCA = "SERVITOTAL_SMOKE "
 SMOKE = r'''
 import json, os, sqlite3, sys, traceback
@@ -430,9 +432,22 @@ def asistente_completo(exe, windows, evidencia, entorno):
         evidencia["minimizada"] = bool(windows.user.IsIconic(programa["hwnd"]))
         if not evidencia["en_primer_plano"] or evidencia["minimizada"]:
             raise RuntimeError("La ventana del programa quedó detrás de otras o minimizada: la usuaria no la vería")
-        otros = [v for v in windows.ventanas({programa["pid"]}) if v["clase"] == "#32770"]
-        if otros:
-            raise RuntimeError("El programa abrió con un aviso: %s %s" % (otros[0]["titulo"], otros[0]["textos"]))
+        # Sin datos anteriores en este equipo, al terminar la búsqueda se pregunta una sola vez; nada más.
+        limite = time.monotonic() + 30
+        evidencia["avisos_programa"] = []
+        while time.monotonic() < limite:
+            avisos = [v for v in windows.ventanas({programa["pid"]}) if v["clase"] == "#32770"]
+            if avisos:
+                aviso = avisos[0]
+                evidencia["avisos_programa"].append({k: aviso[k] for k in ("titulo", "textos")})
+                if aviso["titulo"] != PREGUNTA_ANTERIOR:
+                    raise RuntimeError("El programa abrió con un aviso: %s %s" % (aviso["titulo"], aviso["textos"]))
+                windows.enviar(aviso["hwnd"], WM_COMMAND, IDNO)
+                time.sleep(1)
+                break
+            time.sleep(0.25)
+        else:
+            raise RuntimeError("No apareció la pregunta por los datos de la versión anterior")
         windows.enviar(programa["hwnd"], WM_CLOSE)
         evidencia["codigo_programa"] = windows.esperar_fin(programa["pid"], 60)
         if evidencia["codigo_programa"] != 0:

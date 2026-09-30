@@ -19,8 +19,9 @@ import tempfile
 import traceback
 import zipfile
 
-from verificar_windows import (IDYES, VERSION, Windows, analizar_con_defender, comprobar_sin_errores, contar,
-                               crear_base_anterior, entorno_de_otro_python, ejecutar, huella_publicada, usar_programa)
+from verificar_windows import (IDNO, IDYES, PREGUNTA_ANTERIOR, VERSION, Windows, analizar_con_defender,
+                               comprobar_sin_errores, contar, crear_base_anterior, entorno_de_otro_python, ejecutar,
+                               huella_publicada, usar_programa)
 
 
 NOMBRE = f"Servitotal-{VERSION}"
@@ -153,7 +154,8 @@ def main():
                     raise RuntimeError("Los .pyc del ZIP no corresponden al código incluido")
 
             def abrir(evidencia):
-                usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal)
+                usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal,
+                              respuestas={PREGUNTA_ANTERIOR: IDNO})
                 comprobar_sin_errores(datos, evidencia)
                 evidencia["datos"] = contar(datos / "agencia.db")
                 if any(evidencia["datos"].values()):

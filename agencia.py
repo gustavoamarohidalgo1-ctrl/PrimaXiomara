@@ -28,7 +28,7 @@ def _aviso_de_inicio(texto):
     """Sin consola (pyw) un fallo al abrir pasaría sin que nadie lo note: en Windows se muestra en una ventana."""
     try:
         import ctypes
-        ctypes.windll.user32.MessageBoxW(0, texto, "Servitotal", 0x10)
+        ctypes.windll.user32.MessageBoxW(0, texto, "Servitotal", 0x50010)   # error, al frente y encima de todo
     except Exception:
         print(texto, file=sys.stderr)
 
@@ -4362,6 +4362,58 @@ def ultima_copia_externa(carpeta):
     return datetime.fromtimestamp(max(fechas)) if fechas else None
 
 
+def carpeta_escritorio():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ruta = ctypes.create_unicode_buffer(260)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, ruta) == 0 and ruta.value:
+                return ruta.value
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser("~"), "Desktop")
+
+
+def traer_datos_de_archivo(app, parent, carpeta_inicial=None):
+    """Elige a mano un agencia.db (la versión anterior, un USB o una copia enviada) y trae sus datos, guardando
+    antes una copia de lo que hay. True si se trajeron."""
+    from tkinter import filedialog
+    ruta = filedialog.askopenfilename(
+        parent=parent, title="Elija el archivo agencia.db de la versión anterior (o una copia .db)",
+        initialdir=carpeta_inicial or carpeta_documentos(),
+        filetypes=[("Datos de la agencia", "*.db"), ("Todos los archivos", "*.*")])
+    if not ruta:
+        return False
+    ruta = os.path.normpath(ruta)
+    datos = contar_datos(ruta)
+    if datos is None or misma_ruta(ruta, DB_PATH):
+        messagebox.showerror(
+            "Archivo no válido",
+            "Ese archivo no contiene datos de la agencia que se puedan leer, o es la base que ya está abierta."
+            "\n\nElija el archivo agencia.db de la carpeta de la versión anterior o una copia de seguridad.",
+            parent=parent)
+        return False
+    if identidad_de_base(ruta) == "ajena" and not messagebox.askyesno(
+            "Datos de otro programa",
+            f"Este archivo parece ser de otro programa o de otra agencia, no de {AGENCIA_ESLOGAN}:\n\n{ruta}\n\n"
+            "¿Desea traerlo de todos modos?", default="no", parent=parent):
+        return False
+    try:
+        fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
+    except (OSError, ValueError, OverflowError):
+        fecha = datetime.now()
+    copia = {"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Otra carpeta", "donde": os.path.dirname(ruta),
+             "fecha": fecha, **datos}
+    try:
+        traida = app.restaurar_copia(copia)
+    except (sqlite3.Error, OSError, ValueError) as error:
+        messagebox.showerror("No se pudieron traer los datos", f"{error}\n\nNo se modificó nada.", parent=parent)
+        return False
+    if traida:
+        messagebox.showinfo("Datos traídos", "Listo: los datos de ese archivo ya están en el programa.", parent=parent)
+    return traida
+
+
 class DialogoCopias(tk.Toplevel):
     """Estado de las copias de seguridad, hacer una ahora, elegir una carpeta adicional y restaurar."""
 
@@ -4466,41 +4518,8 @@ class DialogoCopias(tk.Toplevel):
 
     def traer_de_archivo(self):
         """Trae los datos de un agencia.db elegido a mano: la versión anterior, un USB o una copia enviada."""
-        from tkinter import filedialog
-        ruta = filedialog.askopenfilename(
-            parent=self, title="Elija el archivo agencia.db de la versión anterior (o una copia .db)",
-            initialdir=carpeta_documentos(), filetypes=[("Datos de la agencia", "*.db"), ("Todos los archivos", "*.*")])
-        if not ruta:
-            return
-        ruta = os.path.normpath(ruta)
-        datos = contar_datos(ruta)
-        if datos is None or misma_ruta(ruta, DB_PATH):
-            messagebox.showerror(
-                "Archivo no válido",
-                "Ese archivo no contiene datos de la agencia que se puedan leer, o es la base que ya está abierta."
-                "\n\nElija el archivo agencia.db de la carpeta de la versión anterior o una copia de seguridad.",
-                parent=self)
-            return
-        if identidad_de_base(ruta) == "ajena" and not messagebox.askyesno(
-                "Datos de otro programa",
-                f"Este archivo parece ser de otro programa o de otra agencia, no de {AGENCIA_ESLOGAN}:\n\n{ruta}\n\n"
-                "¿Desea traerlo de todos modos?", default="no", parent=self):
-            return
-        try:
-            fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
-        except (OSError, ValueError, OverflowError):
-            fecha = datetime.now()
-        copia = {"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Otra carpeta", "donde": os.path.dirname(ruta),
-                 "fecha": fecha, **datos}
-        try:
-            traida = self.app.restaurar_copia(copia)
-        except (sqlite3.Error, OSError, ValueError) as error:
-            messagebox.showerror("No se pudieron traer los datos", f"{error}\n\nNo se modificó nada.", parent=self)
-            return
-        if traida:
-            messagebox.showinfo("Datos traídos", "Listo: los datos de ese archivo ya están en el programa.", parent=self)
+        if traer_datos_de_archivo(self.app, self):
             self.refrescar()
-
 
 class App:
     def __init__(self, root):
@@ -4694,11 +4713,11 @@ class App:
                 pagina.borrador = {k: str(v) for k, v in borrador.items() if k in pagina.form.tipos}
                 pagina.nuevo()
 
-    def restaurar_copia(self, copia):
+    def restaurar_copia(self, copia, titulo="Restaurar copia", pregunta=None):
         """Reemplaza los datos por los de una copia, guardando antes lo que hay ahora. True si se restauró."""
         ahora = contar_datos(DB_PATH) or {t: 0 for t in TABLAS}
         if not messagebox.askyesno(
-                "Restaurar copia",
+                titulo, pregunta or
                 f"¿Restaurar la copia del {copia['fecha']:%d/%m/%Y a las %H:%M}?\n\n"
                 f"La copia tiene {copia['clientes']} clientes, {copia['trabajadoras']} trabajadoras y "
                 f"{copia['colocaciones']} asignaciones.\nAhora el programa tiene {ahora['clientes']} clientes, "
@@ -4725,17 +4744,23 @@ class App:
 
     def ofrecer_datos_al_abrir(self, copia):
         """Con la ventana ya visible, busca en otro hilo los datos de la versión anterior (puede tardar unos
-        segundos) y después ofrece lo más reciente entre eso y la copia de seguridad `copia`."""
+        segundos) y después:
+        - si el programa está vacío, ofrece lo mejor entre esos datos y la copia de seguridad `copia`; si no hay
+          nada, pregunta una sola vez si tenía datos para elegirlos a mano;
+        - si ya tiene algo (p. ej. una prueba hecha con 1.7.1) y los datos anteriores tienen más registros, ofrece
+          traerlos una sola vez, guardando antes lo que hay."""
         import queue
-        if not BUSCAR_VERSION_ANTERIOR or hay_datos(DB_PATH):
-            if copia:
+        vacia = not hay_datos(DB_PATH)
+        revisada = bool(leer_configuracion().get("version_anterior_revisada"))
+        if not BUSCAR_VERSION_ANTERIOR or (not vacia and revisada):
+            if copia and vacia:
                 self.root.after(400, lambda: self.ofrecer_recuperacion(copia))
             return
         resultado = queue.Queue()
 
         def buscar():
             try:
-                resultado.put(buscar_base_anterior())
+                resultado.put(buscar_base_anterior(aunque_haya_datos=True))
             except BaseException:           # buscar es una ayuda: nunca debe dejar el programa esperando
                 resultado.put(None)
 
@@ -4745,12 +4770,58 @@ class App:
             except queue.Empty:
                 self.root.after(100, recoger)
                 return
-            oferta = elegir_oferta(copia, anterior)
-            if oferta:
-                self.ofrecer_recuperacion(oferta)
+            if not hay_datos(DB_PATH):
+                oferta = elegir_oferta(copia, anterior)
+                if oferta:
+                    self.ofrecer_recuperacion(oferta)
+                elif not revisada:
+                    self.preguntar_por_version_anterior()
+            elif anterior and not revisada:
+                self.ofrecer_version_anterior_mas_completa(anterior)
 
         threading.Thread(target=buscar, name="busqueda-version-anterior", daemon=True).start()
         self.root.after(400, recoger)
+
+    def marcar_version_anterior_revisada(self):
+        try:
+            guardar_configuracion({**leer_configuracion(), "version_anterior_revisada": True})
+        except OSError:
+            pass
+
+    def preguntar_por_version_anterior(self):
+        """No se encontró la base anterior: se pregunta una sola vez, para que pueda elegirla a mano."""
+        self.marcar_version_anterior_revisada()
+        if messagebox.askyesno(
+                TITULO_PREGUNTA_ANTERIOR,
+                f"¿Usaba antes otra versión de {AGENCIA_ESLOGAN} en esta computadora y quiere traer sus clientes "
+                "y trabajadoras?\n\nSi responde Sí, elija el archivo «agencia.db» de la carpeta del programa "
+                "anterior (suele estar en el Escritorio o en Descargas).\n\nSi es la primera vez que usa "
+                f"{AGENCIA_ESLOGAN}, responda No.", parent=self.root):
+            traer_datos_de_archivo(self, self.root, carpeta_escritorio())
+
+    def ofrecer_version_anterior_mas_completa(self, anterior):
+        """El programa ya tiene algo, pero la versión anterior tiene más registros: se ofrece una sola vez."""
+        ahora = contar_datos(DB_PATH)
+        if ahora is None or total_registros(anterior) <= total_registros(ahora):
+            return
+        self.marcar_version_anterior_revisada()
+        pregunta = (f"Este programa tiene {ahora['clientes']} clientes, {ahora['trabajadoras']} trabajadoras y "
+                    f"{ahora['colocaciones']} asignaciones, pero se encontraron más datos de la versión anterior "
+                    f"en:\n\n{anterior['ruta']}\n\nTienen {anterior['clientes']} clientes, "
+                    f"{anterior['trabajadoras']} trabajadoras y {anterior['colocaciones']} asignaciones (último "
+                    f"cambio: {anterior['fecha']:%d/%m/%Y a las %H:%M}).")
+        if anterior.get("ejemplos"):
+            pregunta += "\nÚltimos clientes: " + ", ".join(anterior["ejemplos"]) + "."
+        if anterior.get("agencia") != "propia":
+            pregunta += f"\n\nCompruebe que son los datos de {AGENCIA_ESLOGAN} y no los de otro programa."
+        pregunta += ("\n\n¿Desea traerlos? Lo que hay ahora se guardará antes en una copia de seguridad, por si "
+                     "lo necesita.")
+        try:
+            if self.restaurar_copia(anterior, "Traer los datos de la versión anterior", pregunta):
+                messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
+        except (sqlite3.Error, OSError, ValueError) as error:
+            messagebox.showerror("No se pudieron traer los datos", f"{error}\n\nNo se modificó nada.",
+                                 parent=self.root)
 
     def ofrecer_recuperacion(self, copia):
         """El programa se abrió sin datos pero hay copias: ofrece recuperarlas. Si la persona dice que no y hay otra
@@ -4788,6 +4859,9 @@ class App:
             if alternativa:
                 self.ofrecer_recuperacion({k: v for k, v in alternativa.items() if k != "alternativa"})
             return
+        if hay_datos(DB_PATH):      # mientras la pregunta estaba abierta se registró algo: no se pisa
+            return
+        self.marcar_version_anterior_revisada()
         self.hacer_copia("antes-de-restaurar", avisar=False)
         try:
             self.db.restaurar_desde(copia["ruta"])
@@ -5865,7 +5939,21 @@ def carpetas_personales():
 # pidiera permisos al abrir; allí se traen con «Traer datos de otra carpeta…».
 BUSCAR_VERSION_ANTERIOR = sys.platform == "win32"
 _SIN_BUSCAR = {"appdata", "application data", "library", "node_modules", "site-packages", "__pycache__",
-               "$recycle.bin", "windows", "program files", "program files (x86)", "respaldos"}
+               "$recycle.bin", "windows", "program files", "program files (x86)", "respaldos", "programdata",
+               "users", "usuarios", "system volume information", "recovery", "perflogs", "windows.old"}
+
+
+def unidades_locales():
+    """Windows: raíz de cada disco fijo (C:\\, D:\\…), donde a veces se dejaba la carpeta del programa."""
+    if sys.platform != "win32":
+        return []
+    try:
+        import ctypes
+        mascara = ctypes.windll.kernel32.GetLogicalDrives()
+        raices = [f"{chr(65 + i)}:\\" for i in range(26) if mascara >> i & 1]
+        return [r for r in raices if ctypes.windll.kernel32.GetDriveTypeW(r) == 3]   # 3 = disco fijo
+    except Exception:
+        return []
 
 
 def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_carpetas=3000, segundos=4.0):
@@ -5873,12 +5961,15 @@ def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_ca
     Recorre poco y con límite de tiempo: nunca demora la apertura. Devuelve copias con datos, la más nueva primero."""
     import time
     actual = DB_PATH if actual is None else actual
-    carpetas = carpetas_personales() if carpetas is None else carpetas
+    if carpetas is None:    # primero las carpetas personales; luego la raíz de cada disco, menos a fondo
+        pendientes = [(c, 0, profundidad) for c in carpetas_personales()]
+        pendientes += [(u, 0, 2) for u in unidades_locales()]
+    else:
+        pendientes = [(c, 0, profundidad) for c in carpetas]
     plazo = time.monotonic() + segundos
-    pendientes = [(c, 0) for c in carpetas]
     vistas, encontradas = set(), []
     while pendientes and len(vistas) < limite_carpetas and time.monotonic() < plazo:
-        carpeta, nivel = pendientes.pop(0)
+        carpeta, nivel, maximo = pendientes.pop(0)
         clave = os.path.normcase(os.path.abspath(carpeta))
         if clave in vistas:
             continue
@@ -5891,9 +5982,9 @@ def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_ca
                             continue
                         if entrada.is_file() and entrada.name.lower() == "agencia.db":
                             encontradas.append(entrada.path)
-                        elif (nivel < profundidad and entrada.is_dir() and not entrada.name.startswith((".", "$"))
+                        elif (nivel < maximo and entrada.is_dir() and not entrada.name.startswith((".", "$"))
                               and entrada.name.lower() not in _SIN_BUSCAR):
-                            pendientes.append((entrada.path, nivel + 1))
+                            pendientes.append((entrada.path, nivel + 1, maximo))
                     except OSError:
                         continue
         except OSError:
@@ -5911,8 +6002,12 @@ def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_ca
             copias.append({"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Versión anterior",
                            "donde": os.path.dirname(ruta), "fecha": fecha, "agencia": identidad_de_base(ruta),
                            **datos})
-    # Primero las que se sabe que son de esta agencia; luego, la más reciente.
-    return sorted(copias, key=lambda c: (c["agencia"] == "propia", c["fecha"]), reverse=True)
+    # Primero las que se sabe que son de esta agencia; luego la que tiene más registros; luego la más reciente.
+    return sorted(copias, key=lambda c: (c["agencia"] == "propia", total_registros(c), c["fecha"]), reverse=True)
+
+
+def total_registros(datos):
+    return sum(datos.get(t) or 0 for t in TABLAS) if datos else 0
 
 
 def identidad_de_base(ruta):
@@ -5968,10 +6063,11 @@ def nombres_de_ejemplo(ruta, cantidad=3):
         return []
 
 
-def buscar_base_anterior(ruta=None, carpetas=None):
-    """Si el programa está vacío, la base de una versión anterior que conviene ofrecer (nunca la de otra agencia)."""
+def buscar_base_anterior(ruta=None, carpetas=None, aunque_haya_datos=False):
+    """La base de una versión anterior que conviene ofrecer (nunca la de otra agencia). Normalmente sólo si el
+    programa está vacío; con aunque_haya_datos también cuando ya tiene algo (p. ej. una prueba hecha en 1.7.1)."""
     ruta = DB_PATH if ruta is None else ruta
-    if hay_datos(ruta):
+    if not aunque_haya_datos and hay_datos(ruta):
         return None
     try:
         encontradas = [c for c in buscar_bases_anteriores(carpetas, actual=ruta) if c["agencia"] != "ajena"]
@@ -6042,9 +6138,11 @@ def esquema_desactualizado(ruta):
 
 
 def elegir_oferta(copia, anterior):
-    """Entre una copia de seguridad y los datos de la versión anterior, ofrece primero lo más reciente (una copia
-    diaria de la mañana no debe tapar la base anterior de la tarde) y deja lo otro como alternativa."""
-    if anterior and (copia is None or anterior["fecha"] > copia["fecha"]):
+    """Entre una copia de seguridad y los datos de la versión anterior, ofrece primero lo que tiene más registros
+    (una copia de una prueba casi vacía no debe tapar los datos reales) y, si empatan, lo más reciente. Lo otro
+    queda como alternativa."""
+    if anterior and (copia is None or (total_registros(anterior), anterior["fecha"])
+                     > (total_registros(copia), copia["fecha"])):
         return dict(anterior, alternativa=copia)
     return dict(copia, alternativa=anterior) if copia else None
 
@@ -6122,6 +6220,7 @@ def avisar_error(root, tipo, valor, traza, abierto=[False]):
 
 
 ID_APLICACION = "Servitotal.AgenciaDeEmpleos"   # identidad en la barra de tareas de Windows
+TITULO_PREGUNTA_ANTERIOR = "¿Tenía datos en la versión anterior?"
 
 
 def comando_para_reabrir():
@@ -6227,8 +6326,53 @@ def fijar_relanzamiento(root):
         return None
 
 
+_INSTANCIAS = {}     # cerrojos de «ya está abierto» que mantiene este proceso
+
+
+def otra_ventana_abierta():
+    """Windows: si Servitotal ya está abierto con estos mismos datos (p. ej. se pulsó Terminar en el instalador y
+    además el ícono del Escritorio), trae esa ventana al frente y devuelve True: así nunca hay dos ventanas
+    ofreciendo traer los mismos datos."""
+    if not ES_WINDOWS:
+        return False
+    try:
+        import ctypes
+        import hashlib
+        import time
+        nombre = "Local\\Servitotal-" + hashlib.sha1(os.path.normcase(os.path.abspath(CARPETA)).encode("utf-8")).hexdigest()[:16]
+        if nombre in _INSTANCIAS:
+            return False
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        cerrojo = kernel32.CreateMutexW(None, False, nombre)
+        if not cerrojo:
+            return False
+        if ctypes.get_last_error() != 183:          # 183: ya existía, lo creó otro Servitotal abierto
+            _INSTANCIAS[nombre] = cerrojo
+            return False
+        kernel32.CloseHandle(ctypes.c_void_p(cerrojo))
+        user32 = ctypes.windll.user32
+        titulo = f"{AGENCIA_NOMBRE} “{AGENCIA_ESLOGAN}”"
+        limite = time.monotonic() + 15              # la otra puede estar todavía abriéndose
+        while time.monotonic() < limite:
+            ventana = user32.FindWindowW(None, titulo)
+            if ventana:
+                if user32.IsIconic(ventana):
+                    user32.ShowWindow(ventana, 9)   # SW_RESTORE
+                user32.SetForegroundWindow(ventana)
+                return True
+            time.sleep(0.2)
+        _aviso_de_inicio(f"{AGENCIA_ESLOGAN} ya se está abriendo. Si en unos segundos no aparece su ventana, "
+                         "reinicie la computadora y vuelva a abrirlo.")
+        return True
+    except Exception:           # comprobarlo es una ayuda: nunca debe impedir abrir el programa
+        return False
+
+
 def main():
     reabrir_con_tk_moderno()
+    if otra_ventana_abierta():
+        return
     try:  # texto nítido en pantallas con escala en Windows
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)

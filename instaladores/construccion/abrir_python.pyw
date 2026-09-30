@@ -15,7 +15,7 @@ def mostrar(mensaje):
     if sys.stderr is not None:
         sys.stderr.write(mensaje + "\n")
     try:
-        ctypes.windll.user32.MessageBoxW(None, mensaje, "Servitotal — No se pudo abrir", 0x10)
+        ctypes.windll.user32.MessageBoxW(None, mensaje, "Servitotal — No se pudo abrir", 0x50010)   # al frente
     except Exception:
         pass
 
