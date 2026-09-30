@@ -288,5 +288,85 @@ class UnaSolaVentana(unittest.TestCase):
                 root.destroy()
 
 
+class ArranqueSinArgumentos(unittest.TestCase):
+    """Python del ZIP o del instalador abierto sin argumentos (doble clic o ícono anclado antiguo)."""
+
+    def elegir(self, ejecutable):
+        import runpy
+        modulo = runpy.run_path(str(RAIZ / "instaladores" / "construccion" / "arranque_portable.py"), run_name="x")
+        with mock.patch.object(sys, "executable", str(ejecutable)):
+            return modulo["_elegir"]()
+
+    def test_zip_portable_e_instalador(self):
+        with tempfile.TemporaryDirectory(prefix="arranque ñ ") as tmp:
+            zipc = Path(tmp, "Servitotal-1.7.2")
+            (zipc / "app").mkdir(parents=True)
+            (zipc / "app" / "abrir_portable.pyw").write_text("")
+            self.assertEqual(self.elegir(zipc / "Servitotal.exe"), (str(zipc / "app" / "abrir_portable.pyw"), False))
+            self.assertEqual(self.elegir(zipc / "Servitotal (2).exe")[0], str(zipc / "app" / "abrir_portable.pyw"))
+            self.assertTrue(self.elegir(zipc / "Diagnosticar Servitotal.exe")[1])            # con consola
+            self.assertIsNone(self.elegir(zipc / "python.exe"))                               # Python normal
+            inst = Path(tmp, "Programs", "Servitotal")
+            (inst / "app").mkdir(parents=True)
+            (inst / "runtime").mkdir()
+            (inst / "app" / "iniciar.pyw").write_text("")
+            self.assertEqual(self.elegir(inst / "runtime" / "pythonw.exe"), (str(inst / "app" / "iniciar.pyw"), False))
+            self.assertIsNone(self.elegir(inst / "runtime" / "python.exe"))                  # la consola sigue igual
+            self.assertIsNone(self.elegir(Path(tmp, "otro", "pythonw.exe")))                  # otro Python: nada
+
+
+class DialogosConEscalaDeWindows(unittest.TestCase):
+    def test_a_175_por_ciento_los_botones_del_dialogo_caben(self):
+        import re
+        try:
+            root = agencia.tk.Tk()
+        except agencia.tk.TclError:
+            self.skipTest("no hay pantalla disponible")
+        try:
+            agencia.aplicar_tema(root)
+            root.geometry("1400x900+0+0")
+            root.update()
+            for escala in (1.0, 1.25, 1.5, 1.75):
+                root.tk.call("tk", "scaling", escala * 96 / 72)
+                medida = {}
+
+                def esperar(ventana, *a):
+                    for _ in range(5):
+                        ventana.update()
+                    ancho, alto = map(int, re.match(r"(\d+)x(\d+)", ventana.wm_geometry()).groups())
+                    medida.update(cabe=ancho >= ventana.winfo_reqwidth() and alto >= ventana.winfo_reqheight())
+                    ventana.destroy()
+
+                with mock.patch.object(agencia.tk.Toplevel, "wait_window", esperar), \
+                        mock.patch.object(agencia.tk.Toplevel, "grab_set", lambda v: None):
+                    agencia.pedir_texto(root, "Porcentaje", "Comisión como porcentaje del sueldo (por ejemplo 50). "
+                                        "Déjelo vacío para escribir directamente el importe de la comisión.", "50")
+                self.assertTrue(medida["cabe"], f"no cabe con escala {escala}")
+        finally:
+            root.destroy()
+
+
+class DatosApartadosYCopiasBloqueadas(unittest.TestCase):
+    def test_los_datos_apartados_por_el_instalador_se_encuentran(self):
+        from test_datos_version_anterior import base_anterior
+        with tempfile.TemporaryDirectory(prefix="datos ñ ") as datos:
+            apartada = base_anterior(Path(datos, "Recuperado de la instalacion anterior", "app", "agencia.db"))
+            with mock.patch.object(agencia, "CARPETA", datos):
+                self.assertIn(datos, agencia.carpetas_personales())
+            actual = str(Path(datos, "agencia.db"))
+            copias = agencia.buscar_bases_anteriores([datos], actual=actual)
+            self.assertEqual([os.path.normcase(c["ruta"]) for c in copias], [os.path.normcase(apartada)])
+
+    def test_si_windows_no_deja_escribir_la_copia_externa_lo_explica(self):
+        from test_datos_version_anterior import base_anterior
+        with tempfile.TemporaryDirectory(prefix="bloqueada ") as tmp:
+            ruta = base_anterior(Path(tmp, "agencia.db"))
+            with mock.patch.object(agencia, "copia_externa", side_effect=PermissionError(13, "Acceso denegado")):
+                resultado = agencia.respaldar("auto", ruta=ruta, carpeta=str(Path(tmp, "respaldos")),
+                                              externas=[str(Path(tmp, "Documentos"))])
+        self.assertTrue(resultado["archivo"])
+        self.assertIn("protección contra ransomware", resultado["errores"][0])
+
+
 if __name__ == "__main__":
     unittest.main()

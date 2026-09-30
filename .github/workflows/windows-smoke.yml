@@ -10,7 +10,7 @@ jobs:
   instalador:
     name: Instalador en ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -20,6 +20,14 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
+      - name: Activar la protección en tiempo real de Microsoft Defender
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $false
+          $exclusiones = (Get-MpPreference).ExclusionPath
+          if ($exclusiones) { Remove-MpPreference -ExclusionPath $exclusiones }
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled, RealTimeProtectionEnabled, AMRunningMode | Format-List
 
       - name: Instalar sobre 1.7.1, abrir, traer datos anteriores y desinstalar
         shell: pwsh
@@ -37,7 +45,7 @@ jobs:
   portable:
     name: ZIP portable en ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +55,14 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
+      - name: Activar la protección en tiempo real de Microsoft Defender
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $false
+          $exclusiones = (Get-MpPreference).ExclusionPath
+          if ($exclusiones) { Remove-MpPreference -ExclusionPath $exclusiones }
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled, RealTimeProtectionEnabled, AMRunningMode | Format-List
 
       - name: Abrir Servitotal.exe del ZIP, traer datos anteriores y diagnosticar
         shell: pwsh

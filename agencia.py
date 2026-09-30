@@ -1389,6 +1389,15 @@ def partir_etiqueta(texto):
 
 
 def centrar(ventana, ancho, alto, sobre=None):
+    """Tamaño y posición de una ventana. Las medidas están pensadas para pantallas al 100 %: en una laptop con la
+    escala de Windows al 125-175 % la letra crece, así que un diálogo se agranda en la misma proporción y, cuando ya
+    está construido, lo necesario para que su contenido (y sus botones) quepa entero."""
+    if sobre is not None:
+        escala = max(1.0, ventana.winfo_fpixels("1i") / 96)
+        ancho, alto = int(ancho * escala), int(alto * escala)
+        ventana.after_idle(lambda: _agrandar_para_el_contenido(ventana, sobre))
+    ancho = min(ancho, ventana.winfo_screenwidth() - 40)
+    alto = min(alto, ventana.winfo_screenheight() - 80)
     if sobre is not None:
         x = sobre.winfo_rootx() + (sobre.winfo_width() - ancho) // 2
         y = sobre.winfo_rooty() + (sobre.winfo_height() - alto) // 3
@@ -1396,6 +1405,24 @@ def centrar(ventana, ancho, alto, sobre=None):
         x = (ventana.winfo_screenwidth() - ancho) // 2
         y = (ventana.winfo_screenheight() - alto) // 3
     ventana.geometry(f"{ancho}x{alto}+{max(x, 0)}+{max(y, 0)}")
+    ventana._tamano_pedido = (ancho, alto, max(x, 0), max(y, 0))
+
+
+def _agrandar_para_el_contenido(ventana, sobre):
+    try:
+        if not ventana.winfo_exists():
+            return
+        ventana.update_idletasks()
+        ancho0, alto0, x, y = ventana._tamano_pedido          # el tamaño asignado: sólo se agranda, nunca se achica
+        ancho = min(max(ancho0, ventana.winfo_reqwidth()), ventana.winfo_screenwidth() - 40)
+        alto = min(max(alto0, ventana.winfo_reqheight()), ventana.winfo_screenheight() - 80)
+        if (ancho, alto) == (ancho0, alto0):
+            return
+        x = max(0, min(x, ventana.winfo_screenwidth() - ancho))
+        y = max(0, min(y, ventana.winfo_screenheight() - alto - 40))
+        ventana.geometry(f"{ancho}x{alto}+{x}+{y}")
+    except tk.TclError:
+        pass
 
 
 def pedir_texto(parent, titulo, pregunta, valor_inicial=""):
@@ -1408,7 +1435,8 @@ def pedir_texto(parent, titulo, pregunta, valor_inicial=""):
     centrar(ventana, 480, 230, parent.winfo_toplevel())
     contenido = ttk.Frame(ventana, padding=(26, 24, 26, 22))
     contenido.pack(fill="both", expand=True)
-    ttk.Label(contenido, text=pregunta, wraplength=420, justify="left").pack(anchor="w")
+    ttk.Label(contenido, text=pregunta, wraplength=int(420 * max(1.0, ventana.winfo_fpixels("1i") / 96)),
+              justify="left").pack(anchor="w")
     valor = tk.StringVar(value=valor_inicial or "")
     entrada = ttk.Entry(contenido, textvariable=valor)
     entrada.pack(fill="x", pady=(16, 0))
@@ -4760,7 +4788,8 @@ class App:
 
         def buscar():
             try:
-                resultado.put(buscar_base_anterior(aunque_haya_datos=True))
+                # En segundo plano con la ventana ya abierta: un disco lento puede necesitar más tiempo.
+                resultado.put(buscar_base_anterior(aunque_haya_datos=True, segundos=20))
             except BaseException:           # buscar es una ayuda: nunca debe dejar el programa esperando
                 resultado.put(None)
 
@@ -5816,6 +5845,10 @@ def respaldar(motivo="auto", ruta=None, carpeta=None, externas=None, ahora=None)
             except CsvEnUso as error:
                 resultado["externas"].append(externa)     # la copia .db de ese día sí quedó guardada
                 resultado["errores"].append(f"Copia en «{externa}»: {error}")
+            except PermissionError:
+                resultado["errores"].append(
+                    f"Windows no permitió guardar la copia en «{externa}» (puede estar activada la protección contra "
+                    "ransomware de Seguridad de Windows). Sus datos y la copia dentro del programa sí se guardaron.")
             except (OSError, sqlite3.Error) as error:
                 resultado["errores"].append(f"Copia en «{externa}»: {error}")
     return resultado
@@ -5927,6 +5960,7 @@ def carpetas_personales():
         for nombre in ("Desktop", "Escritorio", "Documents", "Documentos", "Downloads", "Descargas"):
             carpetas.append(os.path.join(base, nombre))
     carpetas += bases
+    carpetas.append(CARPETA)      # «Recuperado de la instalación anterior» y similares, dentro de los datos
     unicas = []
     for carpeta in carpetas:
         clave = os.path.normcase(os.path.abspath(carpeta))
@@ -6063,14 +6097,15 @@ def nombres_de_ejemplo(ruta, cantidad=3):
         return []
 
 
-def buscar_base_anterior(ruta=None, carpetas=None, aunque_haya_datos=False):
+def buscar_base_anterior(ruta=None, carpetas=None, aunque_haya_datos=False, segundos=4.0):
     """La base de una versión anterior que conviene ofrecer (nunca la de otra agencia). Normalmente sólo si el
     programa está vacío; con aunque_haya_datos también cuando ya tiene algo (p. ej. una prueba hecha en 1.7.1)."""
     ruta = DB_PATH if ruta is None else ruta
     if not aunque_haya_datos and hay_datos(ruta):
         return None
     try:
-        encontradas = [c for c in buscar_bases_anteriores(carpetas, actual=ruta) if c["agencia"] != "ajena"]
+        encontradas = [c for c in buscar_bases_anteriores(carpetas, actual=ruta, segundos=segundos)
+                       if c["agencia"] != "ajena"]
     except Exception:   # buscar es una ayuda: nunca debe impedir abrir el programa
         return None
     if not encontradas:

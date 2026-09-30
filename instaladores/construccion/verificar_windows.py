@@ -428,7 +428,12 @@ def asistente_completo(exe, windows, evidencia, entorno):
         if not pasos or "terminar" not in pasos[-1] or not any("instalar" in p for p in pasos):
             raise RuntimeError("El asistente no pasó por Instalar y Terminar: " + str(evidencia["pulsados"]))
         time.sleep(4)
-        evidencia["en_primer_plano"] = windows.user.GetForegroundWindow() == programa["hwnd"]
+        # Al frente debe estar Servitotal: su ventana o un aviso suyo (p. ej. la pregunta por los datos anteriores).
+        frente = windows.user.GetForegroundWindow()
+        pid_frente = wintypes.DWORD()
+        windows.user.GetWindowThreadProcessId(frente, ctypes.byref(pid_frente))
+        evidencia["en_primer_plano"] = pid_frente.value == programa["pid"]
+        evidencia["al_frente"] = windows.texto(frente) if frente else None
         evidencia["minimizada"] = bool(windows.user.IsIconic(programa["hwnd"]))
         if not evidencia["en_primer_plano"] or evidencia["minimizada"]:
             raise RuntimeError("La ventana del programa quedó detrás de otras o minimizada: la usuaria no la vería")
@@ -470,6 +475,7 @@ def analizar_con_defender(ruta, evidencia):
         f"$salida = & $mp -Scan -ScanType 3 -File '{literal}' -DisableRemediation 2>&1 | Out-String; "
         "$codigo = $LASTEXITCODE; "
         "[pscustomobject]@{ servicio=$e.AMServiceEnabled; antivirus=$e.AntivirusEnabled; modo=\"$($e.AMRunningMode)\"; "
+        "tiempo_real=$e.RealTimeProtectionEnabled; "
         "firmas_antes=$antes; firmas=$e.AntivirusSignatureVersion; actualizacion=$act; codigo=$codigo; "
         "salida=$salida.Trim() } | ConvertTo-Json -Compress")
     resultado = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", guion],
@@ -569,8 +575,8 @@ def main():
     parser.add_argument("--sin-anterior", action="store_true", help="no instalar antes la versión 1.7.1")
     opciones = parser.parse_args()
     pasos = ("archivo", "defender_instalador", "asistente", "instalacion_anterior", "en_uso", "instalacion",
-             "defender_instalado", "runtime_app", "acceso_directo", "datos_anteriores", "entorno_de_otro_python",
-             "desinstalacion")
+             "defender_instalado", "runtime_app", "acceso_directo", "icono_anclado_antiguo", "datos_anteriores",
+             "entorno_de_otro_python", "desinstalacion", "datos_dentro_del_programa")
     informe = {"version": VERSION, "fecha_utc": datetime.now(timezone.utc).isoformat(), "plataforma": sys.platform,
                "limite": "No valida SmartScreen, el Control inteligente de aplicaciones ni MOTW del equipo real.",
                "datos": "Sólo bases ficticias en un runner efímero.",
@@ -707,6 +713,32 @@ def main():
                 if any(evidencia["datos"].values()):
                     raise RuntimeError("Una instalación nueva debe abrir sin registros")
 
+            def icono_anclado_antiguo(evidencia):
+                # Un ícono anclado por 1.7.1 abre runtime\pythonw.exe sin argumentos: debe abrir Servitotal.
+                usar_programa([instalacion / "runtime" / "pythonw.exe"], windows, evidencia, entorno=entorno,
+                              cwd=instalacion / "runtime")
+                comprobar_sin_errores(datos, evidencia)
+
+            def datos_dentro_del_programa(evidencia):
+                # Datos que quedaron dentro de app\ de 1.7.1 (p. ej. si alguien abrió app\agencia.py con otro
+                # Python): la actualización los aparta a la carpeta de datos, intactos, y sigue.
+                otra = temporal / "otra instalacion"
+                anterior = temporal / "Servitotal-1.7.1.exe"
+                ejecutar(f'"{anterior}" /S /D={otra}', evidencia, timeout=180)
+                evidencia["huella"] = crear_base_anterior(otra / "app" / "agencia.db")
+                (otra / "app" / "contratos").mkdir()
+                (otra / "app" / "contratos" / "contrato_1.html").write_text("<p>Servitotal</p>", encoding="utf-8")
+                ejecutar(f'"{exe}" /S /D={otra}', evidencia, timeout=300)
+                if (otra / "app" / "agencia.db").exists() or not (otra / "runtime" / "pythonw.exe").exists():
+                    raise RuntimeError("La actualización no apartó los datos o no quedó instalada")
+                apartadas = list(datos.glob("Recuperado de la instalacion anterior*/app/agencia.db"))
+                evidencia["apartadas"] = [str(r) for r in apartadas]
+                if len(apartadas) != 1 or hashlib.sha256(apartadas[0].read_bytes()).hexdigest() != evidencia["huella"]:
+                    raise RuntimeError("Los datos apartados no están intactos en la carpeta de datos")
+                if not (apartadas[0].parent / "contratos" / "contrato_1.html").is_file():
+                    raise RuntimeError("No se apartaron los contratos")
+                ejecutar(f'"{otra / "Desinstalar.exe"}" /S _?={otra}', {}, timeout=120)
+
             def datos_anteriores(evidencia):
                 anterior = escritorio / "Agencia anterior ñ" / "agencia.db"
                 evidencia["huella_antes"] = crear_base_anterior(anterior)
@@ -739,7 +771,7 @@ def main():
 
             anterior_ok = False
             if opciones.sin_anterior:
-                for nombre in ("instalacion_anterior", "en_uso"):
+                for nombre in ("instalacion_anterior", "en_uso", "datos_dentro_del_programa"):
                     informe["pasos"][nombre]["estado"] = "omitido_por_opcion"
             elif probar("instalacion_anterior", instalar_anterior):
                 anterior_ok = probar("en_uso", en_uso)
@@ -747,9 +779,11 @@ def main():
                 probar("defender_instalado", lambda evidencia: analizar_con_defender(instalacion, evidencia))
                 probar("runtime_app", runtime_app)
                 if probar("acceso_directo", abrir_acceso):
+                    probar("icono_anclado_antiguo", icono_anclado_antiguo)
                     if probar("datos_anteriores", datos_anteriores):
                         probar("entorno_de_otro_python", otro_python)
-                    probar("desinstalacion", desinstalar)
+                    if probar("desinstalacion", desinstalar) and not opciones.sin_anterior:
+                        probar("datos_dentro_del_programa", datos_dentro_del_programa)
             informe["actualizacion_desde_171"] = anterior_ok
     except BaseException:
         informe["error_general"] = traceback.format_exc()

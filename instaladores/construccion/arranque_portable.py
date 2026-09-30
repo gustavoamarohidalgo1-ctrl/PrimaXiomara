@@ -1,23 +1,36 @@
-"""Arranque del ZIP portable de Servitotal (se copia como Lib/sitecustomize.py).
+"""Arranque de Servitotal cuando Python se abre sin argumentos (se copia como Lib/sitecustomize.py del Python incluido).
 
-Servitotal.exe y Diagnosticar Servitotal.exe son pythonw.exe y python.exe de Python Software Foundation con otro
-nombre: los bytes y la firma Authenticode no cambian, así que Windows (SmartScreen y el Control inteligente de
-aplicaciones) los reconoce como Python y no hace falta ningún .bat ni ejecutable propio sin firma.
+- ZIP portable: Servitotal.exe y Diagnosticar Servitotal.exe son pythonw.exe y python.exe de Python Software
+  Foundation con otro nombre: los bytes y la firma Authenticode no cambian, así que Windows (SmartScreen y el Control
+  inteligente de aplicaciones) los reconoce como Python y no hace falta ningún .bat ni ejecutable propio sin firma.
+- Instalador: un ícono anclado a la barra de tareas por una versión anterior guarda runtime\\pythonw.exe sin
+  argumentos; al pulsarlo, ese pythonw.exe abre Servitotal en vez de no hacer nada.
 
-Python importa este módulo al iniciar. Si se abrió uno de esos archivos sin argumentos (doble clic), arranca el
-programa; con cualquier argumento Python se comporta como siempre."""
+Python importa este módulo al iniciar. Sólo actúa si se abrió sin argumentos; con cualquier argumento Python se
+comporta como siempre."""
 import os
 import sys
 
-_PYTHON = ("python.exe", "pythonw.exe")   # con su nombre original se comportan como Python normal
+_PYTHON = ("python.exe", "pythonw.exe")   # en el ZIP, con su nombre original se comportan como Python normal
 
 
-def _abrir():
+def _elegir():
+    """(lanzador, muestra consola) según dónde está este Python, o None si no corresponde abrir nada."""
+    carpeta = os.path.dirname(os.path.abspath(sys.executable))
+    nombre = os.path.basename(sys.executable).lower()
+    portable = os.path.join(carpeta, "app", "abrir_portable.pyw")
+    instalado = os.path.join(os.path.dirname(carpeta), "app", "iniciar.pyw")
+    if os.path.isfile(portable) and nombre not in _PYTHON:
+        # Cualquier otro nombre (también «Servitotal (2).exe», que Windows crea al copiar) abre el programa.
+        return portable, nombre.startswith("diagnosticar")
+    if os.path.isfile(instalado) and nombre == "pythonw.exe":
+        return instalado, False
+    return None
+
+
+def _abrir(lanzador, consola):
     import runpy
     import threading
-    consola = os.path.basename(sys.executable).lower().startswith("diagnosticar")
-    carpeta = os.path.dirname(os.path.abspath(sys.executable))
-    lanzador = os.path.join(carpeta, "app", "abrir_portable.pyw")
     local = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
     sys.argv = [lanzador, "--datos", os.path.join(local, "Servitotal")]
     codigo = 1
@@ -48,7 +61,7 @@ def _abrir():
     os._exit(codigo)
 
 
-# Cualquier otro nombre (también «Servitotal (2).exe», que Windows crea al copiar) abre el programa.
-if (sys.platform == "win32" and sys.argv == [""] and os.path.basename(sys.executable).lower() not in _PYTHON
-        and os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "app", "abrir_portable.pyw"))):
-    _abrir()
+if sys.platform == "win32" and sys.argv == [""]:
+    _eleccion = _elegir()
+    if _eleccion:
+        _abrir(*_eleccion)

@@ -10,7 +10,7 @@ Var RuntimePublicado
 Var AppPublicado
 Var DesinstaladorPublicado
 
-; Rename con reintentos durante 30 s. Deja el indicador de error activo sólo si al final no se pudo.
+; Rename con reintentos durante 2 minutos. Deja el indicador de error activo sólo si al final no se pudo.
 ; Windows no permite mover una carpeta mientras otro proceso (p. ej. el antivirus) tiene abierto un archivo dentro.
 !macro RENOMBRAR ORIGEN DESTINO ID
   StrCpy $R8 0
@@ -19,7 +19,9 @@ Var DesinstaladorPublicado
     Rename "${ORIGEN}" "${DESTINO}"
     IfErrors 0 renombrado_${ID}
     IntOp $R8 $R8 + 1
-    IntCmp $R8 60 agotado_${ID} 0 agotado_${ID}
+    StrCmp $R8 1 0 +2
+      DetailPrint "Esperando a que el antivirus termine de revisar los archivos nuevos..."
+    IntCmp $R8 240 agotado_${ID} 0 agotado_${ID}
     Sleep 500
     Goto reintentar_${ID}
   agotado_${ID}:
@@ -148,8 +150,53 @@ Function ${PREFIJO}ComprobarDatosHeredados
 FunctionEnd
 !macroend
 
-!insertmacro DATOS_HEREDADOS ""
 !insertmacro DATOS_HEREDADOS "un."
+
+; Al instalar, los datos que alguna vez quedaron dentro de app o runtime (p. ej. si alguien abrió app\agencia.py
+; con otro Python) se apartan a la carpeta de datos y la instalación sigue. Servitotal busca ahí la base anterior y
+; ofrece traerla. Sólo si Windows no deja moverlos se detiene, sin tocar nada.
+!macro APARTAR CARPETA NOMBRE ID
+  IfFileExists "$INSTDIR\${CARPETA}\${NOMBRE}" 0 apartado_${ID}
+    CreateDirectory "$R6\${CARPETA}"
+    ClearErrors
+    Rename "$INSTDIR\${CARPETA}\${NOMBRE}" "$R6\${CARPETA}\${NOMBRE}"
+    IfErrors datos_no_apartados
+  apartado_${ID}:
+!macroend
+
+Function ComprobarDatosHeredados
+  StrCpy $R6 "${DATOS}\Recuperado de la instalacion anterior"
+  StrCpy $R5 1
+  destino_libre:
+    IfFileExists "$R6\*.*" 0 destino_elegido
+    IntOp $R5 $R5 + 1
+    StrCpy $R6 "${DATOS}\Recuperado de la instalacion anterior $R5"
+    Goto destino_libre
+  destino_elegido:
+  !insertmacro APARTAR "app" "agencia.db" a1
+  !insertmacro APARTAR "app" "agencia.db-wal" a2
+  !insertmacro APARTAR "app" "agencia.db-shm" a3
+  !insertmacro APARTAR "app" "agencia.db-journal" a4
+  !insertmacro APARTAR "app" "contratos" a5
+  !insertmacro APARTAR "app" "respaldos" a6
+  !insertmacro APARTAR "app" "configuracion.json" a7
+  !insertmacro APARTAR "app" "borradores.json" a8
+  !insertmacro APARTAR "app" "errores.log" a9
+  !insertmacro APARTAR "runtime" "agencia.db" r1
+  !insertmacro APARTAR "runtime" "agencia.db-wal" r2
+  !insertmacro APARTAR "runtime" "agencia.db-shm" r3
+  !insertmacro APARTAR "runtime" "agencia.db-journal" r4
+  !insertmacro APARTAR "runtime" "contratos" r5
+  !insertmacro APARTAR "runtime" "respaldos" r6
+  !insertmacro APARTAR "runtime" "configuracion.json" r7
+  !insertmacro APARTAR "runtime" "borradores.json" r8
+  !insertmacro APARTAR "runtime" "errores.log" r9
+  Return
+  datos_no_apartados:
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Hay datos guardados dentro de la carpeta del programa ${NOMBRE} y Windows no permitio apartarlos. No se cambio ni se borro nada.$\r$\n$\r$\nReinicie la computadora y vuelva a abrir este instalador. Si se repite, pida ayuda a quien le instalo el programa." /SD IDOK
+    SetErrorLevel 4
+    Abort
+FunctionEnd
 
 Function .onInstFailed
   ; Sólo limpiar nuestro staging si no quedan originales pendientes de recuperar.

@@ -90,6 +90,8 @@ PY312=""
 for c in python3.12 "$HOME/.local/bin/python3.12" /opt/homebrew/bin/python3.12; do
   if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(0 if sys.version_info[:2]==(3,12) else 1)' 2>/dev/null; then PY312="$c"; break; fi
 done
+# Abierto sin argumentos (p. ej. un ícono anclado por una versión anterior), pythonw.exe abre Servitotal.
+cp "$AQUI/arranque_portable.py" "$R/Lib/sitecustomize.py"
 APP="$TRABAJO/aplicacion"
 rm -rf "$APP" && mkdir -p "$APP"
 cp "$RAIZ/agencia.py" "$RAIZ/contratos_servitotal.py" "$RAIZ/logo.png" "$RAIZ/icono.png" "$RAIZ/icono.ico" "$AQUI/iniciar.pyw" "$APP/"
@@ -104,7 +106,8 @@ fi
 faltan=0
 for f in python.exe pythonw.exe python312.dll vcruntime140.dll vcruntime140_1.dll DLLs/_tkinter.pyd DLLs/tcl86t.dll \
          DLLs/tk86t.dll DLLs/_sqlite3.pyd DLLs/sqlite3.dll DLLs/_ctypes.pyd DLLs/libffi-8.dll Lib/tkinter/__init__.py \
-         Lib/tkinter/ttk.py Lib/sqlite3/__init__.py Lib/json/__init__.py Lib/html/__init__.py tcl/tcl8.6/init.tcl \
+         Lib/tkinter/ttk.py Lib/sqlite3/__init__.py Lib/json/__init__.py Lib/html/__init__.py Lib/sitecustomize.py \
+         tcl/tcl8.6/init.tcl \
          tcl/tk8.6/tk.tcl; do
   [ -e "$R/$f" ] || { echo "FALTA: $f"; faltan=1; }
 done

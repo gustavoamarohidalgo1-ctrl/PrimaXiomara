@@ -52,6 +52,7 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 
 Function ComprobarAntesDeInstalar
   Call ComprobarArchivosEnUso
+  SetErrorLevel 0     ; un «Cancelar» anterior en esta comprobación no debe quedar como código de salida
 FunctionEnd
 
 Function AbrirPrograma
