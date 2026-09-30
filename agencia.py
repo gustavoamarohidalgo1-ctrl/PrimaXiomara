@@ -4743,7 +4743,8 @@ class App:
                 messagebox.showerror(
                     "No se pudieron traer los datos",
                     f"{error}\n\nNo se modificó nada. Puede intentarlo desde Copias de seguridad "
-                    "(Ctrl+Shift+B) con «Traer datos de otra carpeta…».", parent=self.root)
+                    f"({'Cmd' if sys.platform == 'darwin' else 'Ctrl'}+Shift+B) con «Traer datos de otra carpeta…».",
+                    parent=self.root)
                 return
             self.refrescar_todo()
             messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)

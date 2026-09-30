@@ -585,7 +585,8 @@ def main():
                     raise RuntimeError("Los datos traídos no se conservaron entre aperturas")
 
             def desinstalar(evidencia):
-                ejecutar([str(instalacion / "Desinstalar.exe"), "/S", f"_?={instalacion}"], evidencia, timeout=120)
+                # _?= último y sin comillas (como /D=): así NSIS desinstala aquí mismo y espera a terminar.
+                ejecutar(f'"{instalacion / "Desinstalar.exe"}" /S _?={instalacion}', evidencia, timeout=120)
                 if (instalacion / "runtime").exists() or (instalacion / "app").exists():
                     raise RuntimeError("La desinstalación dejó el programa")
                 if contar(datos / "agencia.db")["clientes"] != 1:

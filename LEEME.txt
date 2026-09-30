@@ -1,35 +1,50 @@
 AGENCIA DE EMPLEOS S.T SERVITOTAL - Windows y Mac
 ================================================
-Version de distribucion: 1.7.1.
+Version de distribucion para Windows: 1.7.2 (el paquete de Mac sigue en 1.7.1).
 
-APERTURA RAPIDA EN WINDOWS CON ZIP
-  Servitotal-1.7.1-Windows-portable.zip incluye Python y todos los recursos.
-  Clic derecho sobre el ZIP > Extraer todo. Abra la carpeta Servitotal-1.7.1
-  extraida y haga doble clic en Abrir Servitotal.bat. Conserve toda la carpeta.
+WINDOWS: ZIP SIN INSTALAR (RECOMENDADO)
+  Servitotal-1.7.2-Windows-portable.zip incluye Python y todos los recursos.
+  1. Antes de extraer: clic derecho sobre el ZIP > Propiedades > marque
+     "Desbloquear" (si aparece) > Aceptar.
+  2. Clic derecho sobre el ZIP > Extraer todo (por ejemplo en Documentos).
+  3. Abra la carpeta Servitotal-1.7.2 y haga doble clic en Servitotal.exe.
+  Servitotal.exe es el Python oficial (pythonw.exe, firmado por Python
+  Software Foundation) con otro nombre. El ZIP no tiene .bat ni ejecutables
+  propios sin firma, asi que funciona tambien donde Windows 11 bloquea
+  programas desconocidos. Conserve toda la carpeta.
+  Acceso en el Escritorio: clic derecho en Servitotal.exe > Enviar a >
+  Escritorio (crear acceso directo).
   Los datos se guardan en %LOCALAPPDATA%\Servitotal, igual que con el instalador.
-  Guarde su trabajo y cierre cualquier Servitotal abierto antes de usarla.
-  Si no abre, Diagnosticar Servitotal.bat muestra los errores en una consola.
-  Windows o un antivirus todavia pueden bloquearla; no requiere desactivarlos.
+  Si no abre, Diagnosticar Servitotal.exe muestra el error en una ventana.
+
+DATOS DE LA VERSION ANTERIOR
+  La version anterior guardaba agencia.db junto al programa. La primera vez que
+  la version 1.7.2 se abre sin datos, busca ese archivo en el Escritorio,
+  Documentos y Descargas (tambien en OneDrive) y pregunta si desea traerlo.
+  Al aceptar, copia y actualiza los datos; el archivo original no se modifica.
+  Si no lo encuentra: Ctrl+Shift+B > "Traer datos de otra carpeta..." y elija
+  el agencia.db de la carpeta anterior. Cierre antes el programa anterior.
 
 ABRIR CON PYTHON OFICIAL INSTALADO POR SEPARADO
-  Servitotal-1.7.1-Windows-Python.zip contiene solo codigo, recursos y ayuda.
+  Servitotal-1.7.2-Windows-Python.zip contiene solo codigo, recursos y ayuda.
   Instale Python 3.14.7 completo: Windows installer (64-bit) de
   https://www.python.org/downloads/release/python-3147/
   Mantenga tcl/tk and IDLE, el lanzador y la asociacion de archivos con Python.
+  No use el Python de Microsoft Store: guarda los datos en una carpeta privada.
   Extraiga todo el ZIP y abra Abrir Servitotal.pyw. No abra app/agencia.py.
   Este acceso usa %LOCALAPPDATA%\Servitotal, igual que la version instalada.
   Diagnosticar Servitotal.py muestra los errores si se ejecuta con Python.
-  Python tiene su propia firma; esa firma no firma el codigo de Servitotal.
-  Las protecciones todavia pueden intervenir. Mantengalas activas.
 
 TEMA OSCURO
   Fondos oscuros con detalles rosa y fucsia de Servitotal.
   El logo original y los colores de los botones se conservan.
 
 ABRIR EN ESTA CARPETA
-  Windows: doble clic en Iniciar.bat. Necesita Python 3 con tkinter y sqlite3.
-  Si falta Python, descarguelo desde https://www.python.org/downloads/
-  y marque "Add Python to PATH" y "tcl/tk and IDLE".
+  Windows: doble clic en Iniciar.bat. Necesita Python 3.8 o posterior con
+  tkinter y sqlite3. Si falta Python, descarguelo desde
+  https://www.python.org/downloads/ y marque "Add Python to PATH" y
+  "tcl/tk and IDLE". Copie TODOS los archivos juntos (agencia.py necesita
+  contratos_servitotal.py); si falta alguno, Iniciar.bat lo avisa.
   Mac: doble clic en Crear_App_Mac.command para crear Servitotal.app.
   Este lanzador usa el Python instalado en este equipo (Tk 8.6 o posterior).
   Su minimo de macOS depende de ese Python y se muestra al crearlo.
@@ -54,22 +69,22 @@ INSTALADORES
   al desarrollador, use clic derecho > Abrir o la opcion "Abrir igualmente"
   de Ajustes del Sistema > Privacidad y seguridad.
   Windows: abra el instalador; instala para el usuario actual sin administrador.
-  Si aparece "Windows protegio su PC" de SmartScreen: el instalador actual
-  todavia no tiene firma de editor. Si descargo Servitotal-Windows-x64.exe
-  del repositorio oficial y confia en su procedencia, pulse "Mas informacion",
+  Si aparece "Windows protegio su PC" de SmartScreen: el instalador todavia
+  no tiene firma de editor. Si descargo Servitotal-Windows-x64.exe del
+  repositorio oficial y confia en su procedencia, pulse "Mas informacion",
   compruebe el nombre y pulse "Ejecutar de todas formas".
+  Si aparece "Control inteligente de aplicaciones bloqueo..." (Windows 11),
+  ese aviso no permite continuar: use el ZIP recomendado de arriba.
   Repositorio: https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara
-  No hace falta desactivar Defender ni agregar exclusiones. Si no aparece
-  ese boton o se detecta un virus concreto, conserve el texto para revisar
-  ese caso antes de continuar. El aviso no certifica la seguridad del archivo.
-  Si no aparece ninguna ventana: abra el EXE desde Explorador > Descargas.
-  En Propiedades, el instalador 1.7.1 completo ocupa 12.116.299 bytes.
+  No hace falta desactivar Defender ni agregar exclusiones. Si se detecta un
+  virus concreto, conserve el texto de Seguridad de Windows > Proteccion
+  contra virus y amenazas > Historial de proteccion para revisarlo.
+  En Propiedades, el instalador 1.7.2 completo ocupa {{BYTES_EXE}} bytes.
   Si la descarga quedo incompleta, descargue nuevamente el archivo completo.
-  Revise Seguridad de Windows > Proteccion contra virus y amenazas >
-  Historial de proteccion; conserve el texto de cualquier bloqueo reciente.
-  Ese mismo EXE paso la prueba de asistente, instalacion y apertura de la
-  interfaz en Windows Server 2022 con datos temporales. Esa prueba no reproduce
-  SmartScreen, antivirus ni la configuracion del equipo receptor.
+  El instalador 1.7.2 se probo instalando sobre 1.7.1, abriendo el programa
+  con su acceso del Escritorio, trayendo datos ficticios de la version
+  anterior y desinstalando, en Windows Server 2022 y 2025. Esas pruebas no
+  reproducen SmartScreen, antivirus ni la configuracion del equipo receptor.
   Los datos se guardan aparte del programa:
     Mac:      ~/Library/Application Support/Servitotal
     Windows:  %LOCALAPPDATA%\Servitotal
@@ -77,9 +92,8 @@ INSTALADORES
   por defecto se conservan los datos; borrarlos requiere elegirlo expresamente.
   Los instaladores y sus datos tienen identidad propia para coexistir con
   el programa de Servicio Exclusivo.
-  Para trasladar datos desde la carpeta original a una instalacion: haga una
-  copia con el programa original, abra el nuevo y restaure esa copia desde
-  el panel de respaldos. No copie una base con el programa abierto.
+  Para trasladar datos desde la carpeta original a una instalacion, vea
+  DATOS DE LA VERSION ANTERIOR. No copie una base con el programa abierto.
 
 SECCIONES Y FLUJO
   Clientes: pedido, datos personales, sueldo, horario, servicio y garantia.
@@ -119,7 +133,9 @@ GUARDADO Y RESPALDOS
     Documentos/Respaldos Servitotal
   Puede elegir otra carpeta, por ejemplo un USB o una carpeta sincronizada.
   Cmd+Shift+B en Mac o Ctrl+Shift+B en Windows abre el panel para hacer una
-  copia, restaurarla, abrir las carpetas o configurar una carpeta adicional.
+  copia, restaurarla, abrir las carpetas, configurar una carpeta adicional o
+  traer los datos de otra carpeta (por ejemplo, el agencia.db de la version
+  anterior).
   Conviene conservar tambien una copia en otro dispositivo.
 
 ARCHIVOS PROPIOS
@@ -140,8 +156,9 @@ VOLVER A GENERAR DISTRIBUCIONES
                                 con makensis, sevenzip y msitools.
     crear_iconos.sh              Convierte el logo original a formatos de
                                 icono usando herramientas de macOS.
-    crear_portable_windows.py    Crea el ZIP a partir del EXE 1.7.1 verificado.
-                                Necesita Python y 7-Zip (7zz o 7z).
+    crear_portable_windows.py    Crea el ZIP portable a partir del instalador
+                                ya construido. Necesita Python y 7-Zip.
+    crear_paquete_python.py      Crea el ZIP de codigo para Python oficial.
   Los scripts empacan el codigo actual y los recursos de esta carpeta.
   No incluyen la base de datos, contratos, respaldos ni datos personales.
   Si cambia el codigo, vuelva a generar los paquetes antes de distribuirlos.
@@ -152,13 +169,14 @@ AJUSTES EN agencia.py
   AGENCIA_CARPETA_DATOS debe seguir siendo Servitotal para mantener separados
   los datos y respaldos de las otras agencias.
 
-ACTUALIZAR CON SEGURIDAD (VERSION 1.7.1)
+ACTUALIZAR CON SEGURIDAD (VERSION 1.7.2)
   Guarde su trabajo y cierre el programa antes de actualizarlo en Mac o Windows.
   Windows comprueba si los archivos estan en uso y bloquea la actualizacion o
   desinstalacion si encuentra una instancia abierta o no puede verificarlo.
   Dos instaladores de la misma agencia no pueden ejecutarse a la vez.
   Los archivos nuevos se preparan por separado antes de reemplazar la version
-  anterior. Si el reemplazo falla, se intenta recuperar esa version. Si Windows
+  anterior. Si el antivirus los esta revisando, el cambio se reintenta durante
+  unos segundos. Si aun asi falla, se intenta recuperar la version anterior. Si Windows
   tambien impide recuperarla, el mensaje indica donde quedaron los originales.
   La carpeta normal de datos se conserva; al desinstalar, borrarla sigue siendo
   una opcion explicita y la respuesta predeterminada es No.
