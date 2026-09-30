@@ -5,7 +5,6 @@ programa abre más rápido; ejecutar agencia.py directamente lo recompilaría en
 
 pythonw no tiene consola: un fallo antes de que exista la ventana se guarda en errores_inicio.log y se muestra."""
 from pathlib import Path
-import ctypes
 from datetime import datetime
 import os
 import sys
@@ -40,6 +39,7 @@ def main():
         if sys.stderr is not None:
             sys.stderr.write(detalle)
         try:
+            import ctypes
             ctypes.windll.user32.MessageBoxW(None, mensaje, "Servitotal — No se pudo abrir", 0x10)
         except Exception:
             pass

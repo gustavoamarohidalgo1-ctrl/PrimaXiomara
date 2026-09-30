@@ -47,6 +47,15 @@ try:
     datos.mkdir(parents=True, exist_ok=True)
     import agencia, contratos_servitotal, tkinter
     assert Path(agencia.CARPETA).resolve() == datos.resolve(), agencia.CARPETA
+    import importlib.util
+    resultado["pyc_de_la_fuente"] = []
+    for modulo in (agencia, contratos_servitotal):   # un .pyc «unchecked-hash» viejo se usaría sin avisar
+        cache = importlib.util.cache_from_source(modulo.__file__)
+        if os.path.exists(cache):
+            pyc = Path(cache).read_bytes()
+            if int.from_bytes(pyc[4:8], "little") & 1:
+                assert pyc[8:16] == importlib.util.source_hash(Path(modulo.__file__).read_bytes()), cache
+                resultado["pyc_de_la_fuente"].append(Path(cache).name)
     resultado["python"] = sys.version
     resultado["sqlite"] = sqlite3.sqlite_version
     with sqlite3.connect(":memory:") as conexion:
@@ -83,7 +92,7 @@ finally:
             root.destroy()
         except Exception:
             pass
-    print("SERVITOTAL_SMOKE " + json.dumps(resultado, ensure_ascii=False), flush=True)
+    print("SERVITOTAL_SMOKE " + json.dumps(resultado), flush=True)   # ASCII: -E ignora PYTHONIOENCODING
 sys.exit(0 if resultado["ok"] else 1)
 '''
 
@@ -527,12 +536,15 @@ def main():
                 sobrantes = [p.name for p in instalacion.iterdir() if p.name not in ("runtime", "app", "Desinstalar.exe")]
                 if sobrantes:
                     raise RuntimeError("Quedaron restos de la actualización: " + ", ".join(sobrantes))
-                fuente = Path(__file__).resolve().parents[2] / "agencia.py"
-                if (instalacion / "app/agencia.py").read_bytes() != fuente.read_bytes():
-                    raise RuntimeError("El agencia.py instalado no es el de esta versión")
+                raiz, aqui = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent
+                for instalado, fuente in (("agencia.py", raiz / "agencia.py"),
+                                          ("contratos_servitotal.py", raiz / "contratos_servitotal.py"),
+                                          ("iniciar.pyw", aqui / "iniciar.pyw")):
+                    if (instalacion / "app" / instalado).read_bytes() != fuente.read_bytes():
+                        raise RuntimeError(f"El {instalado} instalado no es el de esta versión")
 
             def runtime_app(evidencia):
-                propio = dict(entorno, AGENCIA_DATOS=str(temporal / "datos smoke"), PYTHONIOENCODING="utf-8")
+                propio = dict(entorno, AGENCIA_DATOS=str(temporal / "datos smoke"))
                 try:
                     ejecutar([str(instalacion / "runtime/python.exe"), "-E", "-s", "-c", SMOKE], evidencia, timeout=60,
                              cwd=instalacion / "app", env=propio)
@@ -543,6 +555,8 @@ def main():
                         evidencia["resultado"] = json.loads(respuestas[-1])
                 if not evidencia.get("resultado", {}).get("ok"):
                     raise RuntimeError("El runtime no devolvió evidencia satisfactoria de Tk, SQLite y App")
+                if len(evidencia["resultado"]["pyc_de_la_fuente"]) != 2:
+                    raise RuntimeError("Faltan los .pyc precompilados del programa")
 
             def comando_escritorio(evidencia):
                 atajo = acceso_directo(escritorio / "Servitotal.lnk")

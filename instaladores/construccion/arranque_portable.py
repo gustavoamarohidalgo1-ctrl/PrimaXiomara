@@ -4,18 +4,18 @@ Servitotal.exe y Diagnosticar Servitotal.exe son pythonw.exe y python.exe de Pyt
 nombre: los bytes y la firma Authenticode no cambian, así que Windows (SmartScreen y el Control inteligente de
 aplicaciones) los reconoce como Python y no hace falta ningún .bat ni ejecutable propio sin firma.
 
-Python importa este módulo al iniciar. Si se abrió uno de esos dos archivos sin argumentos (doble clic), arranca el
+Python importa este módulo al iniciar. Si se abrió uno de esos archivos sin argumentos (doble clic), arranca el
 programa; con cualquier argumento Python se comporta como siempre."""
 import os
 import sys
 
-_PROPIOS = {"servitotal.exe": False, "diagnosticar servitotal.exe": True}   # nombre -> muestra consola
+_PYTHON = ("python.exe", "pythonw.exe")   # con su nombre original se comportan como Python normal
 
 
 def _abrir():
     import runpy
     import threading
-    consola = _PROPIOS[os.path.basename(sys.executable).lower()]
+    consola = os.path.basename(sys.executable).lower().startswith("diagnosticar")
     carpeta = os.path.dirname(os.path.abspath(sys.executable))
     lanzador = os.path.join(carpeta, "app", "abrir_portable.pyw")
     local = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
@@ -48,5 +48,7 @@ def _abrir():
     os._exit(codigo)
 
 
-if sys.argv == [""] and os.path.basename(sys.executable).lower() in _PROPIOS:
+# Cualquier otro nombre (también «Servitotal (2).exe», que Windows crea al copiar) abre el programa.
+if (sys.platform == "win32" and sys.argv == [""] and os.path.basename(sys.executable).lower() not in _PYTHON
+        and os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "app", "abrir_portable.pyw"))):
     _abrir()

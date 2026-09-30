@@ -127,5 +127,77 @@ class InstaladoresProtegidos(unittest.TestCase):
                     self.assertIn(recurso, guardia)
 
 
+class PaquetesWindowsPublicados(unittest.TestCase):
+    """Los paquetes de instaladores/ deben corresponder exactamente al código del repositorio."""
+
+    AQUI = RAIZ / "instaladores" / "construccion"
+    FUENTES = ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")
+
+    def huellas(self):
+        huellas = {}
+        for linea in (RAIZ / "instaladores/SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
+            huella, _, nombre = linea.partition("  ")
+            huellas[nombre.strip()] = huella.strip()
+        return huellas
+
+    def test_las_huellas_publicadas_son_las_de_los_archivos(self):
+        import hashlib
+        huellas = self.huellas()
+        self.assertIn("Servitotal-Windows-x64.exe", huellas)
+        for nombre, huella in huellas.items():
+            with self.subTest(nombre=nombre):
+                self.assertEqual(hashlib.sha256((RAIZ / "instaladores" / nombre).read_bytes()).hexdigest(), huella)
+
+    def comparar_zip(self, archivo, raiz, pares):
+        import zipfile
+        with zipfile.ZipFile(archivo) as paquete:
+            nombres = paquete.namelist()
+            for dentro, fuente in pares:
+                with self.subTest(archivo=archivo.name, dentro=dentro):
+                    self.assertEqual(paquete.read(f"{raiz}/{dentro}"), fuente.read_bytes())
+            return paquete, nombres
+
+    def test_el_zip_portable_lleva_el_codigo_actual_y_ningun_guion(self):
+        import importlib.util
+        import zipfile
+        huellas = self.huellas()
+        nombre = next(n for n in huellas if n.endswith("-Windows-portable.zip"))
+        raiz = nombre[:-len("-Windows-portable.zip")]
+        pares = [("app/" + n, RAIZ / n) for n in self.FUENTES]
+        pares += [("app/abrir_portable.pyw", self.AQUI / "abrir_portable.pyw"),
+                  ("Lib/sitecustomize.py", self.AQUI / "arranque_portable.py")]
+        _, nombres = self.comparar_zip(RAIZ / "instaladores" / nombre, raiz, pares)
+        with zipfile.ZipFile(RAIZ / "instaladores" / nombre) as paquete:
+            self.assertEqual(paquete.read(f"{raiz}/python312._pth"), b"Lib\r\nDLLs\r\napp\r\nimport site\r\n")
+            for n in ("Servitotal.exe", "Diagnosticar Servitotal.exe", "python312.dll", "vcruntime140_1.dll"):
+                self.assertIn(f"{raiz}/{n}", nombres)
+            self.assertFalse([n for n in nombres if n.lower().endswith((".bat", ".cmd", ".ps1", ".vbs", ".lnk"))])
+            if sys.version_info[:2] == (3, 12):      # el mismo número mágico que el Python incluido
+                for modulo in ("agencia", "contratos_servitotal"):
+                    pyc = paquete.read(f"{raiz}/app/__pycache__/{modulo}.cpython-312.pyc")
+                    self.assertEqual(pyc[8:16], importlib.util.source_hash((RAIZ / f"{modulo}.py").read_bytes()))
+
+    def test_el_zip_para_python_oficial_lleva_el_codigo_actual(self):
+        huellas = self.huellas()
+        nombre = next(n for n in huellas if n.endswith("-Windows-Python.zip"))
+        raiz = nombre[:-len("-Windows-Python.zip")] + "-Python"
+        pares = [("app/" + n, RAIZ / n) for n in self.FUENTES]
+        pares.append(("Abrir Servitotal.pyw", self.AQUI / "abrir_python.pyw"))
+        self.comparar_zip(RAIZ / "instaladores" / nombre, raiz, pares)
+
+    def test_el_instalador_lleva_el_codigo_actual(self):
+        herramienta = shutil.which("7zz") or shutil.which("7z")
+        if not herramienta:
+            self.skipTest("No hay 7-Zip para leer el instalador en este equipo")
+        with tempfile.TemporaryDirectory(prefix="instalador-fuente-") as tmp:
+            subprocess.run([herramienta, "x", "-y", "-o" + tmp, str(RAIZ / "instaladores/Servitotal-Windows-x64.exe"),
+                            "$_13_/app/*"], check=True, capture_output=True)
+            app = Path(tmp, "$_13_", "app")
+            pares = [(n, RAIZ / n) for n in self.FUENTES] + [("iniciar.pyw", self.AQUI / "iniciar.pyw")]
+            for dentro, fuente in pares:
+                with self.subTest(dentro=dentro):
+                    self.assertEqual((app / dentro).read_bytes(), fuente.read_bytes())
+
+
 if __name__ == "__main__":
     unittest.main()

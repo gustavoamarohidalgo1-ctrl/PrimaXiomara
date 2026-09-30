@@ -25,13 +25,19 @@ from verificar_windows import (IDYES, VERSION, Windows, comprobar_sin_errores, c
 
 NOMBRE = f"Servitotal-{VERSION}"
 PRUEBA = r'''
-import json, os, sqlite3, sys, tkinter
-import agencia
+import importlib.util, json, os, sqlite3, sys, tkinter
+import agencia, contratos_servitotal
+pyc = []
+for m in (agencia, contratos_servitotal):
+    cache = importlib.util.cache_from_source(m.__file__)
+    datos = open(cache, "rb").read()
+    pyc.append(bool(int.from_bytes(datos[4:8], "little") & 1)
+               and datos[8:16] == importlib.util.source_hash(open(m.__file__, "rb").read()))
 r = tkinter.Tk(); r.update()
 print("PORTABLE " + json.dumps({
     "aislado": sys.flags.isolated, "ruta": sys.path, "prefijo": sys.prefix, "agencia": agencia.__file__,
     "tcl": os.environ.get("TCL_LIBRARY"), "tk": r.tk.call("info", "patchlevel"), "sqlite": sqlite3.sqlite_version,
-    "sitecustomize": sys.modules["sitecustomize"].__file__}))
+    "sitecustomize": sys.modules["sitecustomize"].__file__, "pyc_de_la_fuente": pyc}))
 r.destroy()
 '''
 
@@ -114,6 +120,14 @@ def main():
                             raise RuntimeError("El ZIP no debe depender de guiones que Windows bloquea: " + nombre)
                     paquete.extractall(carpeta.parent)
                 evidencia["primer_nivel"] = sorted(p.name for p in carpeta.iterdir())
+                raiz, aqui = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent
+                pares = [(carpeta / "app" / n, raiz / n) for n in
+                         ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")]
+                pares += [(carpeta / "app/abrir_portable.pyw", aqui / "abrir_portable.pyw"),
+                          (carpeta / "Lib/sitecustomize.py", aqui / "arranque_portable.py")]
+                for empaquetado, fuente in pares:
+                    if empaquetado.read_bytes() != fuente.read_bytes():
+                        raise RuntimeError("El ZIP no corresponde a la fuente actual: " + empaquetado.name)
                 for necesario in ("Servitotal.exe", "Diagnosticar Servitotal.exe", "python312._pth", "LEEME-ABRIR.txt"):
                     if not (carpeta / necesario).is_file():
                         raise RuntimeError("Falta " + necesario)
@@ -135,6 +149,8 @@ def main():
                     raise RuntimeError("El Python portable busca módulos fuera de su carpeta: " + str(resultado["ruta"]))
                 if not dentro(resultado["tcl"], carpeta / "tcl"):
                     raise RuntimeError("Tcl/Tk no es el incluido: " + str(resultado["tcl"]))
+                if resultado["pyc_de_la_fuente"] != [True, True]:
+                    raise RuntimeError("Los .pyc del ZIP no corresponden al código incluido")
 
             def abrir(evidencia):
                 usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal)

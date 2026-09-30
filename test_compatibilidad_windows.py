@@ -187,5 +187,60 @@ class CsvAbiertoEnExcel(unittest.TestCase):
             self.assertEqual(restos, [])
 
 
+class BarraDeTareas(unittest.TestCase):
+    """Al anclar la ventana abierta, Windows usa estas propiedades para volver a abrir Servitotal."""
+
+    def test_el_comando_para_reabrir_repite_la_apertura_con_rutas_completas(self):
+        with tempfile.TemporaryDirectory(prefix="reabrir ñ ") as carpeta:
+            guion = Path(carpeta, "iniciar.pyw")
+            guion.write_text("")
+            anterior = os.getcwd()
+            os.chdir(carpeta)
+            try:
+                with mock.patch.object(sys, "orig_argv", ["pythonw", "-E", "-s", "iniciar.pyw", "--datos", "C:/datos x"],
+                                       create=True), mock.patch.object(sys, "executable", "C:/Programa/pythonw.exe"):
+                    comando = agencia.comando_para_reabrir()
+                completa = os.path.abspath("iniciar.pyw")
+            finally:
+                os.chdir(anterior)
+        self.assertTrue(comando.startswith("C:/Programa/pythonw.exe -E -s "))
+        self.assertIn(completa, comando)                  # el guion con ruta completa, no relativa
+        self.assertTrue(comando.endswith('--datos "C:/datos x"'))
+
+    @unittest.skipUnless(sys.platform == "win32", "las propiedades de la barra de tareas sólo existen en Windows")
+    def test_la_ventana_guarda_como_reabrirse_al_anclarla(self):
+        try:
+            root = agencia.tk.Tk()
+        except agencia.tk.TclError:
+            self.skipTest("no hay pantalla disponible")
+        try:
+            root.update()
+            guardado = agencia.fijar_relanzamiento(root)
+            self.assertIsNotNone(guardado)
+            self.assertEqual(guardado[2], agencia.comando_para_reabrir())
+            self.assertEqual(guardado[4], agencia.AGENCIA_ESLOGAN)
+            self.assertEqual(guardado[5], agencia.ID_APLICACION)
+            self.assertEqual(guardado[3], agencia.ICONO_ICO)
+            releido = agencia.propiedades_de_ventana(int(root.wm_frame(), 16))
+            self.assertEqual(releido, guardado)
+        finally:
+            root.destroy()
+
+
+class PythonDeMicrosoftStore(unittest.TestCase):
+    def test_el_zip_para_python_oficial_explica_el_motivo(self):
+        import runpy
+        lanzador = RAIZ / "instaladores" / "construccion" / "abrir_python.pyw"
+        modulo = runpy.run_path(str(lanzador), run_name="abrir_python")
+        mensajes = []
+        modulo["main"].__globals__["mostrar"] = mensajes.append
+        tienda = r"C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.10_x64__qbz5n2kfra8p0"
+        with mock.patch.object(sys, "platform", "win32"), mock.patch.object(sys, "base_prefix", tienda):
+            self.assertEqual(modulo["main"](), 1)
+        self.assertEqual(len(mensajes), 1)
+        self.assertIn("Microsoft Store", mensajes[0])
+        self.assertNotIn("tcl/tk", mensajes[0])
+
+
 if __name__ == "__main__":
     unittest.main()

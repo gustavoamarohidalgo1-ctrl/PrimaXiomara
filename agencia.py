@@ -4481,6 +4481,11 @@ class DialogoCopias(tk.Toplevel):
                 "\n\nElija el archivo agencia.db de la carpeta de la versión anterior o una copia de seguridad.",
                 parent=self)
             return
+        if identidad_de_base(ruta) == "ajena" and not messagebox.askyesno(
+                "Datos de otro programa",
+                f"Este archivo parece ser de otro programa o de otra agencia, no de {AGENCIA_ESLOGAN}:\n\n{ruta}\n\n"
+                "¿Desea traerlo de todos modos?", default="no", parent=self):
+            return
         try:
             fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
         except (OSError, ValueError, OverflowError):
@@ -4719,41 +4724,52 @@ class App:
         return True
 
     def ofrecer_recuperacion(self, copia):
-        """El programa se abrió sin datos pero hay copias: ofrece recuperarlas."""
+        """El programa se abrió sin datos pero hay copias: ofrece recuperarlas. Si la persona dice que no y hay otra
+        opción (una copia de seguridad o los datos de la versión anterior), se ofrece esa."""
         if hay_datos(DB_PATH):      # mientras tanto se escribió algo (o la base estaba ocupada): no se toca nada
             return
+        atajo = "Cmd" if sys.platform == "darwin" else "Ctrl"
+        alternativa = copia.get("alternativa")
         if copia.get("tipo") == "Versión anterior":
             pregunta = (f"Este programa todavía no tiene datos, pero se encontraron los datos de la versión anterior "
                         f"en:\n\n{copia['ruta']}\n\nTienen {copia['clientes']} clientes, {copia['trabajadoras']} "
                         f"trabajadoras y {copia['colocaciones']} asignaciones (último cambio: "
-                        f"{copia['fecha']:%d/%m/%Y a las %H:%M}).\n\n¿Desea traerlos ahora a esta versión? "
-                        "El archivo de la versión anterior no se modifica.")
+                        f"{copia['fecha']:%d/%m/%Y a las %H:%M}).")
+            if copia.get("ejemplos"):
+                pregunta += "\nÚltimos clientes: " + ", ".join(copia["ejemplos"]) + "."
+            if copia.get("agencia") != "propia":
+                pregunta += f"\n\nCompruebe que son los datos de {AGENCIA_ESLOGAN} y no los de otro programa."
             if copia.get("otras"):
-                atajo = "Cmd" if sys.platform == "darwin" else "Ctrl"
-                pregunta += ("\n\nTambién hay otros archivos agencia.db (por ejemplo de otro programa):\n"
-                             + "\n".join(copia["otras"][:3]) + ("\n…" if len(copia["otras"]) > 3 else "")
-                             + f"\n\nSi los de arriba no son los datos de {AGENCIA_ESLOGAN}, pulse No y elija el "
-                             f"correcto con {atajo}+Shift+B → «Traer datos de otra carpeta…».")
+                pregunta += ("\n\nTambién hay otros archivos agencia.db:\n" + "\n".join(copia["otras"][:3])
+                             + ("\n…" if len(copia["otras"]) > 3 else "")
+                             + f"\nPara elegir otro: {atajo}+Shift+B → «Traer datos de otra carpeta…».")
+            pregunta += "\n\n¿Desea traerlos ahora a esta versión? El archivo de la versión anterior no se modifica."
             titulo = "Traer los datos de la versión anterior"
         else:
             pregunta = (f"Este programa no tiene datos, pero se encontró una copia de seguridad del "
                         f"{copia['fecha']:%d/%m/%Y a las %H:%M} ({copia['donde'].lower()}) con {copia['clientes']} "
-                        f"clientes, {copia['trabajadoras']} trabajadoras y {copia['colocaciones']} asignaciones.\n\n"
-                        "¿Desea recuperarla ahora?")
+                        f"clientes, {copia['trabajadoras']} trabajadoras y {copia['colocaciones']} asignaciones.")
+            if alternativa:
+                pregunta += (f"\n\nTambién están los datos de la versión anterior en {alternativa['ruta']} "
+                             f"(último cambio: {alternativa['fecha']:%d/%m/%Y a las %H:%M}); si responde No, "
+                             "se le ofrecerán a continuación.")
+            pregunta += "\n\n¿Desea recuperarla ahora?"
             titulo = "Recuperar sus datos"
-        if messagebox.askyesno(titulo, pregunta, parent=self.root):
-            self.hacer_copia("antes-de-restaurar", avisar=False)
-            try:
-                self.db.restaurar_desde(copia["ruta"])
-            except (sqlite3.Error, OSError, ValueError) as error:
-                messagebox.showerror(
-                    "No se pudieron traer los datos",
-                    f"{error}\n\nNo se modificó nada. Puede intentarlo desde Copias de seguridad "
-                    f"({'Cmd' if sys.platform == 'darwin' else 'Ctrl'}+Shift+B) con «Traer datos de otra carpeta…».",
-                    parent=self.root)
-                return
-            self.refrescar_todo()
-            messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
+        if not messagebox.askyesno(titulo, pregunta, parent=self.root):
+            if alternativa:
+                self.ofrecer_recuperacion({k: v for k, v in alternativa.items() if k != "alternativa"})
+            return
+        self.hacer_copia("antes-de-restaurar", avisar=False)
+        try:
+            self.db.restaurar_desde(copia["ruta"])
+        except (sqlite3.Error, OSError, ValueError) as error:
+            messagebox.showerror(
+                "No se pudieron traer los datos",
+                f"{error}\n\nNo se modificó nada. Puede intentarlo desde Copias de seguridad "
+                f"({atajo}+Shift+B) con «Traer datos de otra carpeta…».", parent=self.root)
+            return
+        self.refrescar_todo()
+        messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
 
     def vigilar_cambios(self):
         """Cada 3 segundos revisa si otra copia abierta del programa cambió los datos."""
@@ -5816,6 +5832,9 @@ def carpetas_personales():
     return unicas
 
 
+# La versión anterior sólo se usó en Windows. En Mac, recorrer Escritorio, Documentos y Descargas haría que macOS
+# pidiera permisos al abrir; allí se traen con «Traer datos de otra carpeta…».
+BUSCAR_VERSION_ANTERIOR = sys.platform == "win32"
 _SIN_BUSCAR = {"appdata", "application data", "library", "node_modules", "site-packages", "__pycache__",
                "$recycle.bin", "windows", "program files", "program files (x86)", "respaldos"}
 
@@ -5861,24 +5880,78 @@ def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_ca
         datos = contar_datos(ruta)
         if datos is not None and any(datos.values()):
             copias.append({"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Versión anterior",
-                           "donde": os.path.dirname(ruta), "fecha": fecha, **datos})
-    # Primero las que están en una carpeta de Servitotal: en el mismo equipo puede estar el programa de otra agencia,
-    # que también guarda un agencia.db. Luego, la más reciente.
-    return sorted(copias, key=lambda c: (AGENCIA_CARPETA_DATOS.lower() in c["ruta"].lower(), c["fecha"]), reverse=True)
+                           "donde": os.path.dirname(ruta), "fecha": fecha, "agencia": identidad_de_base(ruta),
+                           **datos})
+    # Primero las que se sabe que son de esta agencia; luego, la más reciente.
+    return sorted(copias, key=lambda c: (c["agencia"] == "propia", c["fecha"]), reverse=True)
+
+
+def identidad_de_base(ruta):
+    """«propia», «ajena» o «desconocida». En el mismo equipo puede estar el programa de otra agencia, que también
+    guarda un agencia.db junto a sí: se reconoce por el agencia.py que la acompaña (su AGENCIA_ESLOGAN), por los
+    contratos guardados en la base o por los de la carpeta «contratos». El nombre de la carpeta no cuenta."""
+    propia = AGENCIA_ESLOGAN.casefold()
+    carpeta = os.path.dirname(os.path.abspath(ruta))
+    if os.path.isfile(os.path.join(carpeta, "contratos_servitotal.py")):
+        return "propia"
+    try:
+        with open(os.path.join(carpeta, "agencia.py"), encoding="utf-8", errors="replace") as archivo:
+            m = re.search(r"^AGENCIA_ESLOGAN\s*=\s*[\"'](.*?)[\"']", archivo.read(400_000), re.M)
+        if m:
+            return "propia" if m.group(1).strip().casefold() == propia else "ajena"
+    except OSError:
+        pass
+    documentos = []
+    try:
+        con = conexion_lectura(ruta, timeout=1)
+        try:
+            if "contrato_html" in {f[1] for f in con.execute("PRAGMA table_info(colocaciones)")}:
+                documentos = [f[0] for f in con.execute(
+                    "SELECT contrato_html FROM colocaciones WHERE length(contrato_html) > 0 LIMIT 20")]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        pass
+    try:
+        contratos = os.path.join(carpeta, "contratos")
+        for nombre in sorted(os.listdir(contratos))[:10]:
+            if nombre.lower().endswith(".html"):
+                with open(os.path.join(contratos, nombre), encoding="utf-8", errors="replace") as archivo:
+                    documentos.append(archivo.read(200_000))
+    except OSError:
+        pass
+    if documentos:
+        return "propia" if any(propia in str(d).casefold() for d in documentos) else "ajena"
+    return "desconocida"
+
+
+def nombres_de_ejemplo(ruta, cantidad=3):
+    """Algunos nombres de clientes, para que la agencia reconozca sus propios datos antes de traerlos."""
+    try:
+        con = conexion_lectura(ruta, timeout=1)
+        try:
+            return [f[0].strip() for f in con.execute(
+                "SELECT nombre FROM clientes WHERE trim(coalesce(nombre, '')) <> '' ORDER BY id DESC LIMIT ?",
+                (cantidad,))]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return []
 
 
 def buscar_base_anterior(ruta=None, carpetas=None):
-    """Si el programa está vacío, la base más reciente de una versión anterior que se puede traer."""
+    """Si el programa está vacío, la base de una versión anterior que conviene ofrecer (nunca la de otra agencia)."""
     ruta = DB_PATH if ruta is None else ruta
     if hay_datos(ruta):
         return None
     try:
-        encontradas = buscar_bases_anteriores(carpetas, actual=ruta)
+        encontradas = [c for c in buscar_bases_anteriores(carpetas, actual=ruta) if c["agencia"] != "ajena"]
     except Exception:   # buscar es una ayuda: nunca debe impedir abrir el programa
         return None
     if not encontradas:
         return None
-    return dict(encontradas[0], otras=[c["ruta"] for c in encontradas[1:]])
+    return dict(encontradas[0], otras=[c["ruta"] for c in encontradas[1:]],
+                ejemplos=nombres_de_ejemplo(encontradas[0]["ruta"]))
 
 
 def restaurar_si_esta_danada(ruta=None, carpeta=None):
@@ -5947,7 +6020,12 @@ def preparar_base():
         copia = respaldar("antes-de-actualizar")
         if not (copia["archivo"] or copia["externas"] or copia["omitido"]):
             raise OSError("No se pudo guardar una copia antes de actualizar la base. " + "; ".join(copia["errores"]))
-    return aviso, buscar_restauracion() or buscar_base_anterior()
+    copia = buscar_restauracion()
+    anterior = buscar_base_anterior() if BUSCAR_VERSION_ANTERIOR else None
+    # Se ofrece primero lo más reciente: una copia diaria de la mañana no debe tapar la base anterior de la tarde.
+    if anterior and (copia is None or anterior["fecha"] > copia["fecha"]):
+        return aviso, dict(anterior, alternativa=copia)
+    return aviso, (dict(copia, alternativa=anterior) if copia else None)
 
 
 def reabrir_con_tk_moderno():
@@ -6007,6 +6085,89 @@ def avisar_error(root, tipo, valor, traza, abierto=[False]):
         abierto[0] = False
 
 
+ID_APLICACION = "Servitotal.AgenciaDeEmpleos"   # identidad en la barra de tareas de Windows
+
+
+def comando_para_reabrir():
+    """La línea con la que se abrió este programa, para volver a abrirlo igual desde la barra de tareas."""
+    import subprocess
+    if getattr(sys, "frozen", False):
+        partes = [sys.executable] + sys.argv[1:]
+    else:
+        partes = [sys.executable] + list(getattr(sys, "orig_argv", [None] + sys.argv)[1:])
+    partes = [os.path.abspath(p) if p and not os.path.isabs(p) and os.path.exists(p) else p for p in partes]
+    return subprocess.list2cmdline(partes)
+
+
+def propiedades_de_ventana(hwnd, valores=None):
+    """Lee (y, si se indican, escribe) las propiedades de barra de tareas de una ventana de Windows.
+    `valores` asocia el número de propiedad de System.AppUserModel (2 comando para reabrir, 3 ícono, 4 nombre,
+    5 identidad) con su texto. Devuelve lo que la ventana tiene guardado después."""
+    import ctypes
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+
+    class Clave(ctypes.Structure):
+        _fields_ = [("fmtid", GUID), ("pid", wintypes.DWORD)]
+
+    class Valor(ctypes.Structure):          # PROPVARIANT: 16 bytes en 32 bits, 24 en 64
+        _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
+                    ("r3", ctypes.c_ushort), ("dato", ctypes.c_void_p), ("extra", ctypes.c_void_p)]
+
+    def guid(texto):
+        g = GUID()
+        ctypes.oledll.ole32.CLSIDFromString(texto, ctypes.byref(g))
+        return g
+
+    shell32, ole32 = ctypes.windll.shell32, ctypes.windll.ole32
+    shell32.SHGetPropertyStoreForWindow.argtypes = [wintypes.HWND, ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)]
+    shell32.SHGetPropertyStoreForWindow.restype = ctypes.HRESULT
+    ole32.PropVariantClear.argtypes = [ctypes.POINTER(Valor)]
+    almacen = ctypes.c_void_p()
+    shell32.SHGetPropertyStoreForWindow(hwnd, ctypes.byref(guid("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")),
+                                        ctypes.byref(almacen))
+    tabla = ctypes.cast(almacen, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    liberar = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(tabla[2])
+    leer = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(Clave), ctypes.POINTER(Valor))(tabla[5])
+    escribir = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(Clave), ctypes.POINTER(Valor))(tabla[6])
+    confirmar = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p)(tabla[7])
+    familia = guid("{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}")
+    try:
+        for numero, texto in sorted((valores or {}).items()):   # la identidad (5) va al final
+            textos = ctypes.create_unicode_buffer(texto)
+            escribir(almacen, ctypes.byref(Clave(familia, numero)),
+                     ctypes.byref(Valor(vt=31, dato=ctypes.cast(textos, ctypes.c_void_p).value)))   # VT_LPWSTR
+        if valores:
+            confirmar(almacen)
+        guardado = {}
+        for numero in (2, 3, 4, 5):
+            valor = Valor()
+            leer(almacen, ctypes.byref(Clave(familia, numero)), ctypes.byref(valor))
+            if valor.vt == 31 and valor.dato:
+                guardado[numero] = ctypes.wstring_at(valor.dato)
+            ole32.PropVariantClear(ctypes.byref(valor))
+        return guardado
+    finally:
+        liberar(almacen)
+
+
+def fijar_relanzamiento(root):
+    """Windows: al anclar la ventana abierta a la barra de tareas, el ícono anclado debe volver a abrir Servitotal.
+    Sin estas propiedades Windows anclaría pythonw.exe sin argumentos, que al pulsarlo no abre nada."""
+    if not ES_WINDOWS:
+        return None
+    try:
+        root.update_idletasks()
+        valores = {2: comando_para_reabrir(), 4: AGENCIA_ESLOGAN, 5: ID_APLICACION}
+        if os.path.isfile(ICONO_ICO):
+            valores[3] = ICONO_ICO
+        return propiedades_de_ventana(int(root.wm_frame(), 16), valores)
+    except Exception:           # una ayuda de la barra de tareas nunca debe impedir abrir el programa
+        return None
+
+
 def main():
     reabrir_con_tk_moderno()
     try:  # texto nítido en pantallas con escala en Windows
@@ -6015,7 +6176,7 @@ def main():
     except Exception:
         pass
     try:  # identidad propia en la barra de tareas de Windows: su ícono, no el de Python
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Servitotal.AgenciaDeEmpleos")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ID_APLICACION)
     except Exception:
         pass
     root = tk.Tk()
@@ -6028,6 +6189,7 @@ def main():
         avisar_error(root, *sys.exc_info())
         root.destroy()
         return
+    fijar_relanzamiento(root)
     if aviso:
         root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
     elif oferta:
@@ -6044,8 +6206,8 @@ def arrancar():
         raise
     except BaseException:
         detalle = registrar_error(sys.exc_info(), ERRORES_PATH)
-        _aviso_de_inicio("No se pudo abrir Servitotal.\n\n" + detalle.strip().splitlines()[-1][:300]
-                         + f"\n\nEl detalle quedó en:\n{ERRORES_PATH}")
+        donde = f"\n\nEl detalle quedó en:\n{ERRORES_PATH}" if os.path.isfile(ERRORES_PATH) else ""
+        _aviso_de_inicio("No se pudo abrir Servitotal.\n\n" + detalle.strip().splitlines()[-1][:300] + donde)
         raise SystemExit(1)
 
 

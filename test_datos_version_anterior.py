@@ -53,6 +53,13 @@ def base_anterior(ruta, clientes=("Clienta ficticia Ñuñoa",), con_datos=True):
     return str(ruta)
 
 
+def programa(carpeta, eslogan):
+    """El agencia.py que acompaña a la base en la carpeta de la versión anterior (sólo su identidad)."""
+    Path(carpeta).mkdir(parents=True, exist_ok=True)
+    (Path(carpeta) / "agencia.py").write_text(f'AGENCIA_NOMBRE = "Agencia de Empleos"\nAGENCIA_ESLOGAN = "{eslogan}"\n',
+                                             encoding="utf-8")
+
+
 def huella(ruta):
     return hashlib.sha256(Path(ruta).read_bytes()).hexdigest()
 
@@ -99,14 +106,40 @@ class BusquedaDeBasesAnteriores(unittest.TestCase):
 
     def test_preparar_base_ofrece_la_version_anterior_si_no_hay_copias(self):
         anterior = base_anterior(self.escritorio / "Agencia" / "agencia.db")
-        with mock.patch.object(agencia, "DB_PATH", self.actual), \
-                mock.patch.object(agencia, "CARPETA_RESPALDOS", str(self.casa / "datos nuevos" / "respaldos")), \
-                mock.patch.object(agencia, "carpetas_externas", lambda config=None: []), \
-                mock.patch.object(agencia, "carpetas_personales", lambda: [str(self.escritorio)]):
+        with self.preparar(externa=None):
             aviso, oferta = agencia.preparar_base()
         self.assertIsNone(aviso)
         self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(anterior))
+        self.assertIsNone(oferta["alternativa"])
         self.assertFalse(os.path.exists(self.actual))           # buscar nunca crea la base nueva
+        with self.preparar(externa=None, buscar=False):         # en Mac no se recorren las carpetas personales
+            self.assertEqual(agencia.preparar_base(), (None, None))
+
+    def preparar(self, externa, buscar=True):
+        from contextlib import ExitStack
+        pila = ExitStack()
+        for nombre, valor in (("DB_PATH", self.actual), ("CARPETA_RESPALDOS", str(self.casa / "datos nuevos" / "respaldos")),
+                              ("carpetas_externas", lambda config=None: [externa] if externa else []),
+                              ("carpetas_personales", lambda: [str(self.escritorio)]),
+                              ("BUSCAR_VERSION_ANTERIOR", buscar)):
+            pila.enter_context(mock.patch.object(agencia, nombre, valor))
+        return pila
+
+    def test_una_copia_diaria_mas_vieja_no_tapa_la_base_anterior_mas_reciente(self):
+        externa = self.casa / "Documentos" / "Respaldos Servitotal"
+        externa.mkdir(parents=True)
+        copia = base_anterior(externa / "agencia-20260929.db", clientes=("Ana",))
+        os.utime(copia, (1_700_000_000, 1_700_000_000))           # la copia de la mañana
+        anterior = base_anterior(self.escritorio / "Agencia" / "agencia.db", clientes=("Ana", "Beto"))
+        with self.preparar(externa=str(externa)):
+            _, oferta = agencia.preparar_base()
+        self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(anterior))
+        self.assertEqual(os.path.normcase(oferta["alternativa"]["ruta"]), os.path.normcase(copia))
+        os.utime(anterior, (1_600_000_000, 1_600_000_000))        # ahora la copia es la más reciente
+        with self.preparar(externa=str(externa)):
+            _, oferta = agencia.preparar_base()
+        self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(copia))
+        self.assertEqual(os.path.normcase(oferta["alternativa"]["ruta"]), os.path.normcase(anterior))
 
     def test_carpetas_personales_existen_y_no_se_repiten(self):
         carpetas = agencia.carpetas_personales()
@@ -116,14 +149,38 @@ class BusquedaDeBasesAnteriores(unittest.TestCase):
         self.assertEqual(len(claves), len(set(claves)))
 
 
-    def test_con_varias_bases_prefiere_la_de_servitotal_y_avisa_de_las_otras(self):
-        otra = base_anterior(self.escritorio / "Servicio Exclusivo" / "agencia.db", clientes=("Otra agencia",))
-        propia = base_anterior(self.escritorio / "Agencia Servitotal" / "agencia.db")
-        os.utime(propia, (1_700_000_000, 1_700_000_000))          # la de otra agencia es más reciente
+    def test_la_base_de_otra_agencia_no_se_ofrece_aunque_sea_la_mas_reciente(self):
+        # Nombres reales: la carpeta del repositorio descargado y el programa de la otra agencia no dicen «Servitotal».
+        propia = base_anterior(self.escritorio / "PrimaXiomara-main" / "agencia.db")
+        programa(self.escritorio / "PrimaXiomara-main", "Servitotal")
+        ajena = base_anterior(self.escritorio / "Tia_Programa-main" / "agencia.db", clientes=("Otra agencia",))
+        programa(self.escritorio / "Tia_Programa-main", "Servicio Exclusivo")
+        os.utime(propia, (1_700_000_000, 1_700_000_000))            # la de la otra agencia es más reciente
+        self.assertEqual(agencia.identidad_de_base(propia), "propia")
+        self.assertEqual(agencia.identidad_de_base(ajena), "ajena")
         oferta = agencia.buscar_base_anterior(self.actual, [str(self.escritorio)])
         self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(propia))
-        self.assertEqual([os.path.normcase(r) for r in oferta["otras"]], [os.path.normcase(otra)])
+        self.assertEqual(oferta["otras"], [])                       # la ajena ni siquiera se menciona
+        self.assertEqual(oferta["ejemplos"], ["Clienta ficticia Ñuñoa"])
+        os.remove(propia)
+        self.assertIsNone(agencia.buscar_base_anterior(self.actual, [str(self.escritorio)]))
 
+    def test_una_base_propia_vieja_gana_a_una_desconocida_y_los_contratos_identifican_la_agencia(self):
+        propia = base_anterior(self.escritorio / "Respaldo" / "agencia.db")
+        os.utime(propia, (1_600_000_000, 1_600_000_000))
+        (self.escritorio / "Respaldo" / "contratos").mkdir()
+        (self.escritorio / "Respaldo" / "contratos" / "contrato_1.html").write_text(
+            "<p>AGENCIA DE EMPLEOS S.T SERVITOTAL</p>", encoding="utf-8")
+        desconocida = base_anterior(self.escritorio / "Agencia.exe carpeta" / "agencia.db")
+        ajena = base_anterior(self.escritorio / "Otro" / "agencia.db")
+        (self.escritorio / "Otro" / "contratos").mkdir()
+        (self.escritorio / "Otro" / "contratos" / "contrato_1.html").write_text("<p>Servicio Exclusivo</p>",
+                                                                               encoding="utf-8")
+        self.assertEqual([agencia.identidad_de_base(r) for r in (propia, desconocida, ajena)],
+                         ["propia", "desconocida", "ajena"])
+        oferta = agencia.buscar_base_anterior(self.actual, [str(self.escritorio)])
+        self.assertEqual(os.path.normcase(oferta["ruta"]), os.path.normcase(propia))
+        self.assertEqual([os.path.normcase(r) for r in oferta["otras"]], [os.path.normcase(desconocida)])
 
 class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
     def setUp(self):
@@ -184,17 +241,50 @@ class TraerDatosAnterioresEnElPrograma(unittest.TestCase):
         self.comprobar_traidos(original, antes)
         self.assertEqual(self.mensajes[-1][0], "Datos recuperados")
         self.assertNotIn("También hay otros", self.mensajes[0][1])
+        self.assertIn("Clienta ficticia Ñuñoa", self.mensajes[0][1])        # para reconocer sus propios datos
+        self.assertIn("Compruebe que son los datos", self.mensajes[0][1])  # sin agencia.py no se sabe de quién es
 
     def test_la_oferta_menciona_otras_bases_encontradas(self):
         base_anterior(self.base / "Escritorio" / "Agencia Servitotal" / "agencia.db")
-        otra = base_anterior(self.base / "Escritorio" / "Otro programa" / "agencia.db", clientes=("Otra",))
+        programa(self.base / "Escritorio" / "Agencia Servitotal", "Servitotal")
+        otra = base_anterior(self.base / "Escritorio" / "Otra carpeta" / "agencia.db", clientes=("Otra",))
         self.mensajes.clear()
         with mock.patch.object(agencia.messagebox, "askyesno", side_effect=lambda titulo, texto, **k:
                                (self.mensajes.append((titulo, texto)), False)[1]):
             self.app.ofrecer_recuperacion(agencia.buscar_base_anterior(carpetas=[str(self.base / "Escritorio")]))
         self.assertIn(otra, self.mensajes[0][1])
         self.assertIn("Traer datos de otra carpeta", self.mensajes[0][1])
+        self.assertNotIn("Compruebe que son los datos", self.mensajes[0][1])   # su agencia.py dice Servitotal
         self.assertEqual(self.app.db.todos("clientes"), [])            # «No»: no se trae nada
+
+    def test_si_dice_no_a_la_copia_se_le_ofrece_la_version_anterior(self):
+        anterior = base_anterior(self.base / "Escritorio" / "Agencia" / "agencia.db")
+        copia = base_anterior(self.base / "copia" / "agencia-20260929.db", clientes=("Copia vieja",))
+        oferta = dict(agencia.listar_copias([(str(self.base / "copia"), "Documentos")])[0],
+                      alternativa=agencia.buscar_base_anterior(carpetas=[str(self.base / "Escritorio")]))
+        respuestas = iter([False, True])
+        with mock.patch.object(agencia.messagebox, "askyesno", side_effect=lambda titulo, texto, **k:
+                               (self.mensajes.append((titulo, texto)), next(respuestas))[1]):
+            self.app.ofrecer_recuperacion(oferta)
+        self.assertEqual([m[0] for m in self.mensajes[:2]], ["Recuperar sus datos", "Traer los datos de la versión anterior"])
+        self.assertIn(anterior, self.mensajes[0][1])
+        self.assertEqual([c["nombre"] for c in self.app.db.todos("clientes")], ["Clienta ficticia Ñuñoa"])
+        self.assertTrue(os.path.exists(copia))
+
+    def test_elegir_a_mano_una_base_de_otra_agencia_pide_confirmar(self):
+        ajena = base_anterior(self.base / "Tia" / "agencia.db", clientes=("Otra agencia",))
+        programa(self.base / "Tia", "Servicio Exclusivo")
+        dialogo = agencia.DialogoCopias(self.root, self.app)
+        try:
+            preguntas = []
+            with mock.patch("tkinter.filedialog.askopenfilename", return_value=ajena), \
+                    mock.patch.object(agencia.messagebox, "askyesno", side_effect=lambda titulo, texto, **k:
+                                      (preguntas.append((titulo, k.get("default"))), False)[1]):
+                dialogo.traer_de_archivo()
+            self.assertEqual(preguntas, [("Datos de otro programa", "no")])
+            self.assertEqual(self.app.db.todos("clientes"), [])
+        finally:
+            dialogo.destroy()
 
     def test_el_panel_de_copias_trae_un_archivo_elegido_y_rechaza_otro(self):
         original = base_anterior(self.base / "USB" / "agencia.db")

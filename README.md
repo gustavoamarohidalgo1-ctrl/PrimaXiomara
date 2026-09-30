@@ -12,7 +12,7 @@ Los paquetes incluyen Python; no hace falta instalarlo por separado.
 | --- | --- |
 | Windows 10 u 11 de 64 bits, **recomendado** | [Servitotal-1.7.2-Windows-portable.zip](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.7.2-Windows-portable.zip) |
 | Windows 10 u 11 de 64 bits, con instalador | [Servitotal-Windows-x64.exe](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-Windows-x64.exe) |
-| Mac con chip Apple Silicon, macOS 11.0 o posterior | [Servitotal-Mac-arm64.dmg](instaladores/Servitotal-Mac-arm64.dmg) |
+| Mac con chip Apple Silicon, macOS 11.0 o posterior | [Servitotal-Mac-arm64.dmg](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-Mac-arm64.dmg) |
 
 Los enlaces descargan el archivo directamente. En Mac, abra el DMG y arrastre Servitotal a Aplicaciones. Consulte [LEEME.txt](LEEME.txt) para instalación y uso. Las huellas de los paquetes están en [SHA256SUMS.txt](instaladores/SHA256SUMS.txt).
 

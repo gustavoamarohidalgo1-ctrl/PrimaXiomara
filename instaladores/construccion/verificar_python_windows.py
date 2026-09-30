@@ -73,7 +73,15 @@ def extraer_paquete(archivo, destino, evidencia):
             raise RuntimeError("El ZIP no supera la comprobación CRC")
         evidencia["archivos"] = sorted(archivos)
         paquete.extractall(destino)
-    return destino / RAIZ_ZIP
+    carpeta = destino / RAIZ_ZIP
+    raiz, aqui = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent
+    pares = [(carpeta / "app" / n, raiz / n) for n in
+             ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")]
+    pares.append((carpeta / "Abrir Servitotal.pyw", aqui / "abrir_python.pyw"))
+    for empaquetado, fuente in pares:
+        if empaquetado.read_bytes() != fuente.read_bytes():
+            raise RuntimeError("El ZIP no corresponde a la fuente actual: " + empaquetado.name)
+    return carpeta
 
 
 def descargar_python(destino, evidencia):
