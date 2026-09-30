@@ -44,7 +44,7 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 
 Para actualizar, cierre Servitotal y abra el instalador nuevo: la instalación conserva la carpeta de datos. Si el programa está abierto, el instalador se detiene sin cambiar nada. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior.
 
-En **Propiedades**, el instalador 1.7.2 completo ocupa **11.797.584 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.7.2 completo ocupa **11.802.397 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
@@ -77,7 +77,7 @@ Este repositorio contiene únicamente el programa Servitotal y sus instaladores.
 
 ## Pruebas
 
-Las **337 pruebas de Servitotal** pasan en macOS con Python 3.12 y en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36695055077) con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits y con el mismo Python incluido en el instalador. Usan registros ficticios y bases temporales. Con Python que incluya Tk y una sesión gráfica disponible:
+Las **338 pruebas de Servitotal** pasan en macOS con Python 3.12 y en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36730969284) con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits y con el mismo Python incluido en el instalador. Usan registros ficticios y bases temporales. Con Python que incluya Tk y una sesión gráfica disponible:
 
 ```sh
 python -m unittest discover -v
@@ -85,7 +85,7 @@ python -m unittest discover -v
 
 Las pruebas del constructor de Windows requieren `makensis`; las del lanzador de Mac, macOS.
 
-Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36695070342), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
+Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36730975295), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
 
 - **Instalador:**
   - Se instaló sobre la versión 1.7.1 publicada.
@@ -95,7 +95,7 @@ Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2
   - Abrió con variables de otro Python (`PYTHONHOME`, `PYTHONPATH`, `TCL_LIBRARY`).
   - Se desinstaló conservando los datos.
 - **ZIP portable:** verificó la firma de Python Software Foundation en `Servitotal.exe` y repitió la apertura, los datos anteriores, el entorno ajeno y el diagnóstico.
-- **Python oficial:** la [prueba con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36695074868) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
+- **Python oficial:** la [prueba con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36730980532) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
 
 Ninguna de estas pruebas reproduce SmartScreen, el Control inteligente de aplicaciones ni el antivirus del equipo de una usuaria. Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py) y [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) modifican accesos, registro y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero.
 
