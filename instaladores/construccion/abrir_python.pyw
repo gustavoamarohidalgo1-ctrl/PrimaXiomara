@@ -24,9 +24,9 @@ def main():
         import agencia
         agencia.main()
         return 0
-    except BaseException as error:
-        if isinstance(error, SystemExit) and error.code in (None, 0):
-            return 0
+    except SystemExit as salida:   # agencia ya mostró su propio aviso antes de salir
+        return salida.code if isinstance(salida.code, int) else 0 if salida.code is None else 1
+    except BaseException:
         detalle = traceback.format_exc()
         mensaje = "No se pudo abrir Servitotal.\n\n"
         if datos is not None:

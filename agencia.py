@@ -15,7 +15,6 @@ import html
 import json
 import sqlite3
 import math
-from contratos_servitotal import renderizar_hoja_servicio
 import threading
 import unicodedata
 from contextlib import contextmanager
@@ -24,25 +23,42 @@ from functools import lru_cache
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
-if sys.platform == "win32":  # Python incluido en el instalador: indicar dónde están los archivos de Tcl/Tk
-    for _variable, _carpeta in (("TCL_LIBRARY", "tcl8.6"), ("TK_LIBRARY", "tk8.6")):
-        _ruta = os.path.join(sys.base_prefix, "tcl", _carpeta)
-        if _variable not in os.environ and os.path.isdir(_ruta):
-            os.environ[_variable] = _ruta
+
+def _aviso_de_inicio(texto):
+    """Sin consola (pyw) un fallo al abrir pasaría sin que nadie lo note: en Windows se muestra en una ventana."""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, texto, "Servitotal", 0x10)
+    except Exception:
+        print(texto, file=sys.stderr)
+
+
+try:
+    from contratos_servitotal import renderizar_hoja_servicio
+except ImportError as _error:   # actualización a medias: se copió agencia.py sin el resto de archivos
+    _aviso_de_inicio(
+        "No se pudo abrir Servitotal: falta el archivo contratos_servitotal.py junto a agencia.py.\n\n"
+        "Copie TODOS los archivos de la actualización en la misma carpeta (no solo agencia.py) o use el "
+        f"instalador Servitotal-Windows-x64.exe, que ya los trae.\n\nDetalle: {_error}")
+    raise SystemExit(1)
 
 try:
     import tkinter as tk
     import tkinter.font as tkfont
     from tkinter import ttk, messagebox
 except ImportError:  # Python sin tkinter: avisar en vez de cerrarse sin decir nada (pyw no tiene consola)
-    _AVISO = ("Este Python no incluye tkinter, que el programa necesita.\n\nReinstale Python desde "
-              "https://www.python.org/downloads/ y deje marcada la opción «tcl/tk and IDLE».")
-    try:
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, _AVISO, "Agencia de Empleos", 0x10)
-    except Exception:
-        print(_AVISO, file=sys.stderr)
+    _aviso_de_inicio("Este Python no incluye tkinter, que el programa necesita.\n\nReinstale Python desde "
+                     "https://www.python.org/downloads/ y deje marcada la opción «tcl/tk and IDLE», o use el "
+                     "instalador Servitotal-Windows-x64.exe, que trae su propio Python.")
     raise SystemExit(1)
+
+if sys.platform == "win32":
+    # Usar siempre el Tcl/Tk que acompaña a este Python (el incluido en el instalador o el de python.org). Otro
+    # programa puede dejar TCL_LIBRARY apuntando a su propia versión y entonces Tk no arrancaría.
+    for _variable, _carpeta in (("TCL_LIBRARY", f"tcl{tk.TclVersion}"), ("TK_LIBRARY", f"tk{tk.TkVersion}")):
+        _ruta = os.path.join(sys.base_prefix, "tcl", _carpeta)
+        if os.path.isdir(_ruta):
+            os.environ[_variable] = _ruta
 
 # ---------------------------------------------------------------- Configuración
 AGENCIA_NOMBRE = "Agencia de Empleos"
@@ -897,7 +913,7 @@ class BaseDatos:
             if resguardo is not None:
                 resguardo.close()
             if temporal is not None and not conservar_resguardo:
-                shutil.rmtree(temporal)
+                shutil.rmtree(temporal, ignore_errors=True)   # un antivirus puede retener el temporal un momento
         self._version_externa = self._leer_version_externa()
         self._olvidar_memoria()
         self._cambio_desconocido()
@@ -4685,8 +4701,7 @@ class App:
                 "Antes se guardará una copia de lo que hay ahora, así podrá volver atrás si se equivoca.",
                 parent=self.root):
             return False
-        import tempfile
-        with tempfile.TemporaryDirectory(prefix="servitotal-restauracion-") as carpeta:
+        with carpeta_temporal(prefix="servitotal-restauracion-") as carpeta:
             fuente_segura = os.path.join(carpeta, "fuente.db")
             copiar_base(copia["ruta"], fuente_segura)
             for pagina in (self.clientes, self.trabajadoras):
@@ -5253,6 +5268,19 @@ def _copiar_sqlite(fuente, destino, limite=30):
 
 
 @contextmanager
+def carpeta_temporal(**opciones):
+    """Carpeta de trabajo propia. En Windows un antivirus o el indexador pueden retener un archivo recién creado:
+    no poder borrar el temporal no debe convertir en error una operación que ya terminó bien."""
+    import shutil
+    import tempfile
+    carpeta = tempfile.mkdtemp(**opciones)
+    try:
+        yield carpeta
+    finally:
+        shutil.rmtree(carpeta, ignore_errors=True)
+
+
+@contextmanager
 def archivo_atomico(ruta, encoding="utf-8", newline=None):
     """Un temporal exclusivo evita truncar archivos buenos y pisar otras escrituras."""
     import tempfile
@@ -5814,7 +5842,6 @@ def buscar_base_anterior(ruta=None, carpetas=None):
 
 def restaurar_si_esta_danada(ruta=None, carpeta=None):
     """Prepara y migra la recuperación antes de apartar una base dañada."""
-    import tempfile
     import uuid
     ruta = DB_PATH if ruta is None else os.fspath(ruta)
     if not os.path.exists(ruta) or base_sana(ruta):
@@ -5831,7 +5858,7 @@ def restaurar_si_esta_danada(ruta=None, carpeta=None):
     destino = CARPETA_RESPALDOS if carpeta is None else carpetas[0][0]
     os.makedirs(destino, exist_ok=True)
     apartada = os.path.join(destino, f"agencia-danada-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}.db")
-    with tempfile.TemporaryDirectory(prefix="agencia-recuperacion-", dir=Path(ruta).parent) as temporal:
+    with carpeta_temporal(prefix="agencia-recuperacion-", dir=Path(ruta).parent) as temporal:
         preparada = os.path.join(temporal, "verificada.db")
         copiar_base(sano["ruta"], preparada)
         migrada = BaseDatos(preparada)
@@ -5967,5 +5994,19 @@ def main():
     root.mainloop()
 
 
+def arrancar():
+    """Punto de entrada al abrir agencia.py directamente (Iniciar.bat) o el EXE de PyInstaller: pyw no tiene
+    consola, así que un fallo antes de que exista la ventana se guarda en errores.log y se muestra."""
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        detalle = registrar_error(sys.exc_info(), ERRORES_PATH)
+        _aviso_de_inicio("No se pudo abrir Servitotal.\n\n" + detalle.strip().splitlines()[-1][:300]
+                         + f"\n\nEl detalle quedó en:\n{ERRORES_PATH}")
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
-    main()
+    arrancar()
