@@ -2,9 +2,6 @@ name: Pruebas completas de Servitotal en Windows
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - arreglo-windows
 
 permissions:
   contents: read

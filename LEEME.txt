@@ -21,7 +21,11 @@ DATOS DE LA VERSION ANTERIOR
   La version anterior guardaba agencia.db junto al programa. La primera vez que
   la version 1.7.2 se abre sin datos, busca ese archivo en el Escritorio,
   Documentos y Descargas (tambien en OneDrive) y pregunta si desea traerlo.
-  Al aceptar, copia y actualiza los datos; el archivo original no se modifica.
+  El aviso muestra la carpeta, las cantidades y los ultimos clientes para que
+  reconozca sus datos. Al aceptar, copia y actualiza los datos; el archivo
+  original no se modifica. La base del programa de otra agencia (por ejemplo
+  Servicio Exclusivo) no se ofrece: se reconoce por su agencia.py y contratos.
+  Si hay una copia de seguridad y la base anterior, se ofrece la mas reciente.
   Si no lo encuentra: Ctrl+Shift+B > "Traer datos de otra carpeta..." y elija
   el agencia.db de la carpeta anterior. Cierre antes el programa anterior.
 
@@ -79,7 +83,7 @@ INSTALADORES
   No hace falta desactivar Defender ni agregar exclusiones. Si se detecta un
   virus concreto, conserve el texto de Seguridad de Windows > Proteccion
   contra virus y amenazas > Historial de proteccion para revisarlo.
-  En Propiedades, el instalador 1.7.2 completo ocupa {{BYTES_EXE}} bytes.
+  En Propiedades, el instalador 1.7.2 completo ocupa 11.797.584 bytes.
   Si la descarga quedo incompleta, descargue nuevamente el archivo completo.
   El instalador 1.7.2 se probo instalando sobre 1.7.1, abriendo el programa
   con su acceso del Escritorio, trayendo datos ficticios de la version

@@ -29,7 +29,9 @@ Los datos se guardan en `%LOCALAPPDATA%\Servitotal`, igual que con el instalador
 
 ### Datos de la versión anterior
 
-La versión anterior guardaba `agencia.db` junto al programa. La primera vez que Servitotal 1.7.2 se abre sin datos, busca ese archivo en el Escritorio, Documentos y Descargas (también en OneDrive) y pregunta si desea traerlo. Al aceptar, copia y actualiza los datos; el archivo original no se modifica.
+La versión anterior guardaba `agencia.db` junto al programa. La primera vez que Servitotal 1.7.2 se abre sin datos en Windows, busca ese archivo en el Escritorio, Documentos y Descargas (también en OneDrive) y pregunta si desea traerlo. El aviso muestra la carpeta, las cantidades, la fecha del último cambio y los últimos clientes, para que reconozca sus datos. Al aceptar, copia y actualiza los datos; el archivo original no se modifica.
+
+Si en el equipo también está el programa de otra agencia (por ejemplo, Servicio Exclusivo), su `agencia.db` no se ofrece: el programa reconoce cada base por el `agencia.py` que la acompaña y por sus contratos. Si hay una copia de seguridad y además la base anterior, se ofrece primero la más reciente; si responde No, se ofrece la otra.
 
 Si no lo encuentra, pulse **Ctrl+Shift+B → Traer datos de otra carpeta…** y elija el `agencia.db` de la carpeta anterior. El programa guarda antes una copia de lo que tenga. Cierre el programa anterior antes de traer sus datos.
 
@@ -42,7 +44,7 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 
 Para actualizar, cierre Servitotal y abra el instalador nuevo: la instalación conserva la carpeta de datos. Si el programa está abierto, el instalador se detiene sin cambiar nada. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior.
 
-En **Propiedades**, el instalador 1.7.2 completo ocupa **{{BYTES_EXE}} bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.7.2 completo ocupa **11.797.584 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
@@ -75,7 +77,7 @@ Este repositorio contiene únicamente el programa Servitotal y sus instaladores.
 
 ## Pruebas
 
-Las **{{PRUEBAS}} pruebas de Servitotal** pasan en macOS con Python 3.12 y en [Windows Server 2022 y 2025]({{RUN_PRUEBAS}}) con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits y con el mismo Python incluido en el instalador. Usan registros ficticios y bases temporales. Con Python que incluya Tk y una sesión gráfica disponible:
+Las **337 pruebas de Servitotal** pasan en macOS con Python 3.12 y en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36695055077) con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits y con el mismo Python incluido en el instalador. Usan registros ficticios y bases temporales. Con Python que incluya Tk y una sesión gráfica disponible:
 
 ```sh
 python -m unittest discover -v
@@ -83,7 +85,7 @@ python -m unittest discover -v
 
 Las pruebas del constructor de Windows requieren `makensis`; las del lanzador de Mac, macOS.
 
-Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025]({{RUN_WINDOWS}}), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
+Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36695070342), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
 
 - **Instalador:**
   - Se instaló sobre la versión 1.7.1 publicada.
@@ -93,7 +95,7 @@ Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2
   - Abrió con variables de otro Python (`PYTHONHOME`, `PYTHONPATH`, `TCL_LIBRARY`).
   - Se desinstaló conservando los datos.
 - **ZIP portable:** verificó la firma de Python Software Foundation en `Servitotal.exe` y repitió la apertura, los datos anteriores, el entorno ajeno y el diagnóstico.
-- **Python oficial:** la [prueba con Python oficial]({{RUN_PYTHON}}) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
+- **Python oficial:** la [prueba con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36695074868) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
 
 Ninguna de estas pruebas reproduce SmartScreen, el Control inteligente de aplicaciones ni el antivirus del equipo de una usuaria. Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py) y [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) modifican accesos, registro y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero.
 
