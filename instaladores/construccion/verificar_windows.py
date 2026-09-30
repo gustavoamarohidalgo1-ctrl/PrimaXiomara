@@ -35,7 +35,7 @@ URL_ANTERIOR = ("https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/"
                 "3a9e0a944c071790656e3b511c3f67bd7249363c/instaladores/Servitotal-Windows-x64.exe")
 SHA256_ANTERIOR = "18b467dca5f9a2c4e64e61fbc75fb938eb21992f4b2d736758e7ccc5f2ab0811"
 CLAVE_DESINSTALAR = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Servitotal"
-WM_CLOSE, WM_COMMAND, IDYES = 0x0010, 0x0111, 6
+WM_CLOSE, WM_COMMAND, IDYES, BM_GETCHECK = 0x0010, 0x0111, 6, 0x00F0
 MARCA = "SERVITOTAL_SMOKE "
 SMOKE = r'''
 import json, os, sqlite3, sys, traceback
@@ -140,6 +140,11 @@ class Windows:
         self.user.GetDlgCtrlID.argtypes = [wintypes.HWND]
         self.user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
         self.user.PostMessageW.restype = wintypes.BOOL
+        self.user.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        self.user.SendMessageW.restype = ctypes.c_ssize_t
+        self.user.IsWindowEnabled.argtypes = [wintypes.HWND]
+        self.user.GetForegroundWindow.restype = wintypes.HWND
+        self.kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
         self.shell.SHGetFolderPathW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.HANDLE, wintypes.DWORD,
                                                 wintypes.LPWSTR]
         self.kernel.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
@@ -211,7 +216,10 @@ class Windows:
                     clase = self.clase(control).casefold()
                     if clase == "button":
                         botones.append(self.texto(control))
-                        controles.append({"texto": self.texto(control), "id": self.user.GetDlgCtrlID(control)})
+                        controles.append({"texto": self.texto(control), "id": self.user.GetDlgCtrlID(control),
+                                          "hwnd": control, "habilitado": bool(self.user.IsWindowEnabled(control)),
+                                          "visible": bool(self.user.IsWindowVisible(control)),
+                                          "marcado": self.user.SendMessageW(control, BM_GETCHECK, 0, 0)})
                     elif clase == "static" and self.texto(control):
                         textos.append(self.texto(control))
                     return True
@@ -229,6 +237,20 @@ class Windows:
     def enviar(self, ventana, mensaje, wparam=0, lparam=0):
         if not self.user.PostMessageW(ventana, mensaje, wparam, lparam):
             raise ctypes.WinError(ctypes.get_last_error())
+
+    def esperar_fin(self, pid, segundos):
+        """Espera a que termine un proceso que no lanzó esta prueba (p. ej. el que abre el instalador)."""
+        handle = self.kernel.OpenProcess(0x00100000 | 0x1000, False, pid)   # SYNCHRONIZE | QUERY_LIMITED
+        if not handle:
+            return None
+        try:
+            if self.kernel.WaitForSingleObject(handle, int(segundos * 1000)) != 0:
+                return None
+            codigo = wintypes.DWORD()
+            self.kernel.GetExitCodeProcess(handle, ctypes.byref(codigo))
+            return codigo.value
+        finally:
+            self.kernel.CloseHandle(handle)
 
     def carpeta(self, codigo):
         ruta = ctypes.create_unicode_buffer(260)
@@ -361,6 +383,90 @@ def entorno_de_otro_python(base, carpeta):
                 PYTHONSTARTUP=str(ajena / "no-existe.py"))
 
 
+def asistente_completo(exe, windows, evidencia, entorno):
+    """Instala como la usuaria: Siguiente, Instalar y Terminar con «Abrir Servitotal ahora» marcado. Después la
+    ventana del programa debe aparecer sola, en primer plano, y cerrarse normalmente con su botón X."""
+    proceso = subprocess.Popen([str(exe)], env=entorno)
+    evidencia.update(pid=proceso.pid, pulsados=[])
+    try:
+        fin = time.monotonic() + 240
+        programa = None
+        while time.monotonic() < fin and programa is None:
+            vistas = windows.ventanas(windows.descendientes(proceso.pid))
+            programa = next((v for v in vistas if v["titulo"] == TITULO), None)
+            if programa is not None or proceso.poll() is not None:
+                continue
+            propias = [v for v in vistas if v["pid"] == proceso.pid]
+            asistente = next((v for v in propias if any(c["id"] == 3 for c in v["controles"])), None)  # tiene «Atrás»
+            avisos = [v for v in propias if v is not asistente and v["clase"] == "#32770"]
+            if avisos:
+                evidencia["aviso"] = {k: avisos[0][k] for k in ("titulo", "textos")}
+                raise RuntimeError("El instalador mostró un aviso: %s %s" % (avisos[0]["titulo"], avisos[0]["textos"]))
+            siguiente = next((c for c in (asistente or {}).get("controles", []) if c["id"] == 1), None)
+            if siguiente and siguiente["habilitado"] and siguiente["visible"]:
+                texto = siguiente["texto"].replace("&", "")
+                if "terminar" in texto.casefold():
+                    abrir = [c for c in asistente["controles"] if "abrir" in c["texto"].casefold()]
+                    evidencia["abrir_ahora_marcado"] = bool(abrir and abrir[0]["marcado"] == 1)
+                    if not evidencia["abrir_ahora_marcado"]:
+                        raise RuntimeError("La casilla «Abrir Servitotal ahora» no está marcada por defecto")
+                evidencia["pulsados"].append(texto)
+                windows.enviar(asistente["hwnd"], WM_COMMAND, 1, siguiente["hwnd"])
+                time.sleep(2)                     # dejar que cambie la página antes de mirar de nuevo
+                continue
+            time.sleep(0.3)
+        if programa is None:
+            evidencia["codigo_instalador"] = proceso.poll()
+            raise RuntimeError("Después de Terminar no apareció la ventana de Servitotal")
+        evidencia["codigo_instalador"] = proceso.wait(timeout=30)
+        if evidencia["codigo_instalador"] != 0:
+            raise RuntimeError("El instalador terminó con código %s" % evidencia["codigo_instalador"])
+        pasos = [p.casefold() for p in evidencia["pulsados"]]
+        if not pasos or "terminar" not in pasos[-1] or not any("instalar" in p for p in pasos):
+            raise RuntimeError("El asistente no pasó por Instalar y Terminar: " + str(evidencia["pulsados"]))
+        time.sleep(4)
+        evidencia["en_primer_plano"] = windows.user.GetForegroundWindow() == programa["hwnd"]
+        otros = [v for v in windows.ventanas({programa["pid"]}) if v["clase"] == "#32770"]
+        if otros:
+            raise RuntimeError("El programa abrió con un aviso: %s %s" % (otros[0]["titulo"], otros[0]["textos"]))
+        windows.enviar(programa["hwnd"], WM_CLOSE)
+        evidencia["codigo_programa"] = windows.esperar_fin(programa["pid"], 60)
+        if evidencia["codigo_programa"] != 0:
+            raise RuntimeError("El programa abierto por el instalador no se cerró normalmente: %s"
+                               % evidencia["codigo_programa"])
+    finally:
+        if proceso.poll() is None:
+            windows.cerrar_prueba(proceso)
+
+
+def analizar_con_defender(ruta, evidencia):
+    """Analiza con Microsoft Defender actualizado. Código 0 de MpCmdRun: sin amenazas; 2: amenaza detectada."""
+    literal = str(ruta).replace("'", "''")
+    guion = (
+        "$ErrorActionPreference = 'Continue'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        "$antes = (Get-MpComputerStatus).AntivirusSignatureVersion; "
+        "try { Update-MpSignature -ErrorAction Stop; $act = 'ok' } catch { $act = $_.Exception.Message }; "
+        "$e = Get-MpComputerStatus; "
+        "$mp = Join-Path $env:ProgramFiles 'Windows Defender\\MpCmdRun.exe'; "
+        f"$salida = & $mp -Scan -ScanType 3 -File '{literal}' -DisableRemediation 2>&1 | Out-String; "
+        "$codigo = $LASTEXITCODE; "
+        "[pscustomobject]@{ servicio=$e.AMServiceEnabled; antivirus=$e.AntivirusEnabled; modo=\"$($e.AMRunningMode)\"; "
+        "firmas_antes=$antes; firmas=$e.AntivirusSignatureVersion; actualizacion=$act; codigo=$codigo; "
+        "salida=$salida.Trim() } | ConvertTo-Json -Compress")
+    resultado = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", guion],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+    try:
+        datos = json.loads(resultado.stdout.strip().lstrip("\ufeff"))
+    except ValueError:
+        evidencia.update(stdout=resultado.stdout[-2000:], stderr=resultado.stderr[-2000:])
+        raise RuntimeError("No se pudo ejecutar Microsoft Defender")
+    evidencia["defender"] = datos
+    if datos.get("codigo") == 2:
+        raise RuntimeError("Microsoft Defender detectó una amenaza en " + str(ruta))
+    if datos.get("codigo") != 0:
+        raise RuntimeError("Microsoft Defender no pudo analizar el archivo (código %s)" % datos.get("codigo"))
+
+
 def asistente(exe, evidencia):
     windows = Windows()
     proceso = subprocess.Popen([str(exe)])
@@ -443,8 +549,9 @@ def main():
     parser.add_argument("--evidencia", "--salida", type=Path, default=Path("verificacion-windows.json"))
     parser.add_argument("--sin-anterior", action="store_true", help="no instalar antes la versión 1.7.1")
     opciones = parser.parse_args()
-    pasos = ("archivo", "asistente", "instalacion_anterior", "en_uso", "instalacion", "runtime_app",
-             "acceso_directo", "datos_anteriores", "entorno_de_otro_python", "desinstalacion")
+    pasos = ("archivo", "defender_instalador", "asistente", "instalacion_anterior", "en_uso", "instalacion",
+             "defender_instalado", "runtime_app", "acceso_directo", "datos_anteriores", "entorno_de_otro_python",
+             "desinstalacion")
     informe = {"version": VERSION, "fecha_utc": datetime.now(timezone.utc).isoformat(), "plataforma": sys.platform,
                "limite": "No valida SmartScreen, el Control inteligente de aplicaciones ni MOTW del equipo real.",
                "datos": "Sólo bases ficticias en un runner efímero.",
@@ -485,6 +592,7 @@ def main():
             instalacion = temporal / "programa con espacios"
             entorno = {k: v for k, v in os.environ.items() if k not in ("AGENCIA_DATOS", "PYTHONHOME", "PYTHONPATH",
                                                                          "TCL_LIBRARY", "TK_LIBRARY")}
+            probar("defender_instalador", lambda evidencia: analizar_con_defender(exe, evidencia))
             probar("asistente", lambda evidencia: asistente(exe, evidencia))
 
             def instalar(instalador, evidencia, codigo=0):
@@ -523,7 +631,10 @@ def main():
                     windows.cerrar_prueba(abierto)
 
             def instalar_nueva(evidencia):
-                instalar(exe, evidencia)
+                if opciones.sin_anterior:
+                    instalar(exe, evidencia)
+                else:           # sobre la versión anterior, con clics, como la usuaria
+                    asistente_completo(exe, windows, evidencia, entorno)
                 evidencia["version_registrada"] = version_registrada()
                 if evidencia["version_registrada"] != VERSION:
                     raise RuntimeError("El registro no muestra la versión " + VERSION)
@@ -614,6 +725,7 @@ def main():
             elif probar("instalacion_anterior", instalar_anterior):
                 anterior_ok = probar("en_uso", en_uso)
             if probar("instalacion", instalar_nueva):
+                probar("defender_instalado", lambda evidencia: analizar_con_defender(instalacion, evidencia))
                 probar("runtime_app", runtime_app)
                 if probar("acceso_directo", abrir_acceso):
                     if probar("datos_anteriores", datos_anteriores):

@@ -19,8 +19,8 @@ import tempfile
 import traceback
 import zipfile
 
-from verificar_windows import (IDYES, VERSION, Windows, comprobar_sin_errores, contar, crear_base_anterior,
-                               entorno_de_otro_python, ejecutar, huella_publicada, usar_programa)
+from verificar_windows import (IDYES, VERSION, Windows, analizar_con_defender, comprobar_sin_errores, contar,
+                               crear_base_anterior, entorno_de_otro_python, ejecutar, huella_publicada, usar_programa)
 
 
 NOMBRE = f"Servitotal-{VERSION}"
@@ -65,7 +65,7 @@ def main():
     parser.add_argument("--zip", type=Path, required=True)
     parser.add_argument("--evidencia", type=Path, default=Path("evidencia-portable-windows.json"))
     opciones = parser.parse_args()
-    pasos = ("archivo", "extraccion", "firmas", "python_aislado", "abrir", "datos_anteriores",
+    pasos = ("archivo", "extraccion", "defender", "firmas", "python_aislado", "abrir", "datos_anteriores",
              "entorno_de_otro_python", "diagnostico")
     informe = {"version": VERSION, "plataforma": sys.platform, "fecha_utc": datetime.now(timezone.utc).isoformat(),
                "limite": "No reproduce SmartScreen, el Control inteligente de aplicaciones ni el antivirus real.",
@@ -185,6 +185,7 @@ def main():
                     raise RuntimeError("La consola de diagnóstico no informó el cierre")
 
             if probar("extraccion", extraer):
+                probar("defender", lambda evidencia: analizar_con_defender(carpeta, evidencia))
                 probar("firmas", comprobar_firmas)
                 probar("python_aislado", python_aislado)
                 if probar("abrir", abrir):

@@ -65,6 +65,7 @@ FunctionEnd
 
 !macro ARCHIVOS_EN_USO PREFIJO
 Function ${PREFIJO}ComprobarArchivosEnUso
+  volver_a_comprobar:
   System::Store "s"
   StrCpy $R9 0
   IfFileExists "$INSTDIR\runtime\pythonw.exe" comprobar
@@ -105,11 +106,12 @@ Function ${PREFIJO}ComprobarArchivosEnUso
     Pop $0
     StrCmp $0 0 libre
     StrCmp $0 1 0 no_comprobado
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Hay una instancia de ${NOMBRE} usando los archivos de esta instalacion. Guarde su trabajo y cierrela antes de actualizar o desinstalar.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDOK
+    ; Reintentar sin salir del asistente; si la ventana no se ve (quedó oculta), reiniciar la cierra.
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${NOMBRE} esta abierto. Guarde su trabajo, cierre ${NOMBRE} y pulse Reintentar.$\r$\n$\r$\nSi no ve la ventana de ${NOMBRE}, reinicie la computadora y vuelva a abrir este instalador.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDCANCEL IDRETRY volver_a_comprobar
     SetErrorLevel 2
     Abort
   no_comprobado:
-    MessageBox MB_OK|MB_ICONSTOP "Windows no pudo comprobar si los archivos de ${NOMBRE} estan en uso. Cierre el programa y vuelva a intentar.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDOK
+    MessageBox MB_RETRYCANCEL|MB_ICONSTOP "Windows no pudo comprobar si ${NOMBRE} esta abierto. Cierre ${NOMBRE} y pulse Reintentar, o reinicie la computadora y vuelva a abrir este instalador.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDCANCEL IDRETRY volver_a_comprobar
     SetErrorLevel 2
     Abort
   libre:
