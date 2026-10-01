@@ -347,6 +347,15 @@ PRUEBAS = {
          '''os.path.join("L", agencia.AGENCIA_CARPETA_DATOS))'''),
         ("carpeta de datos propia", '''self.base("AppData/Local/Agencia de Empleos/agencia.db", clientes=9)''',
          '''self.base("AppData/Local/Servitotal/agencia.db", clientes=9)'''),
+        ("Python 3.8 y 3.9 (Servitotal los admite)", '''import unittest\n''',
+         '''import unittest\n\n# ignore_cleanup_errors existe desde Python 3.10; Servitotal también se prueba con 3.8 y 3.9\n'''
+         '''SIN_ERRORES_AL_LIMPIAR = {"ignore_cleanup_errors": True} if sys.version_info >= (3, 10) else {}\n'''),
+        ("Python 3.8 y 3.9", '''tempfile.TemporaryDirectory(prefix="csv-excel-", ignore_cleanup_errors=True)''',
+         '''tempfile.TemporaryDirectory(prefix="csv-excel-", **SIN_ERRORES_AL_LIMPIAR)'''),
+        ("Python 3.8 y 3.9", '''tempfile.TemporaryDirectory(prefix="rutas ñ #% ", ignore_cleanup_errors=True)''',
+         '''tempfile.TemporaryDirectory(prefix="rutas ñ #% ", **SIN_ERRORES_AL_LIMPIAR)'''),
+        ("Python 3.8 y 3.9", '''tempfile.TemporaryDirectory(prefix="casa-ficticia-", ignore_cleanup_errors=True)''',
+         '''tempfile.TemporaryDirectory(prefix="casa-ficticia-", **SIN_ERRORES_AL_LIMPIAR)'''),
     ],
 }
 EJEMPLOS = [".github/windows/vieja_1_7_0.sql"]     # base ficticia de Servicio Exclusivo 1.7.0 que usan las pruebas

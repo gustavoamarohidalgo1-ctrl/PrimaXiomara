@@ -32,6 +32,7 @@ from urllib.request import urlopen
 VERSION = re.search(r'^VERSION = "([0-9.]+)"', (Path(__file__).resolve().parents[2] / "agencia.py")
                     .read_text(encoding="utf-8"), re.M).group(1)          # la de agencia.py
 TITULO = "Agencia de Empleos"
+TITULO_ANTERIOR = "Agencia de Empleos “Servitotal”"     # la ventana de la 1.7.1 publicada
 # Versión publicada antes del arreglo: la agencia puede tenerla instalada.
 URL_ANTERIOR = ("https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/"
                 "3a9e0a944c071790656e3b511c3f67bd7249363c/instaladores/Servitotal-Windows-x64.exe")
@@ -642,7 +643,7 @@ def main():
                                            cwd=instalacion / "app", env=entorno)
                 try:
                     limite = time.monotonic() + 30
-                    while not any(v["titulo"] == TITULO for v in windows.ventanas(windows.descendientes(abierto.pid))):
+                    while not any(v["titulo"] == TITULO_ANTERIOR for v in windows.ventanas(windows.descendientes(abierto.pid))):
                         if time.monotonic() > limite or abierto.poll() is not None:
                             raise RuntimeError("La versión anterior no llegó a abrirse")
                         time.sleep(0.25)
@@ -662,7 +663,7 @@ def main():
                     abierta = subprocess.Popen([str(instalacion / "runtime/pythonw.exe"), str(instalacion / "app/iniciar.pyw"),
                                                 "--datos", str(temporal / "d2")], cwd=instalacion / "app", env=entorno)
                     limite = time.monotonic() + 30
-                    while not any(v["titulo"] == TITULO for v in windows.ventanas(windows.descendientes(abierta.pid))):
+                    while not any(v["titulo"] == TITULO_ANTERIOR for v in windows.ventanas(windows.descendientes(abierta.pid))):
                         if time.monotonic() > limite or abierta.poll() is not None:
                             raise RuntimeError("La versión anterior no llegó a abrirse")
                         time.sleep(0.25)

@@ -8,6 +8,9 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+
+# ignore_cleanup_errors existe desde Python 3.10; Servitotal también se prueba con 3.8 y 3.9
+SIN_ERRORES_AL_LIMPIAR = {"ignore_cleanup_errors": True} if sys.version_info >= (3, 10) else {}
 from unittest import mock
 
 if not os.environ.get("AGENCIA_DATOS"):      # nunca la carpeta de datos real, aunque se pruebe desde el proyecto
@@ -62,7 +65,7 @@ class CSVAbiertoEnExcel(unittest.TestCase):
     NOMBRES = ("Clientes.csv", "Trabajadoras.csv", "Asignaciones.csv", "Areas.csv")
 
     def setUp(self):
-        self.temporal = tempfile.TemporaryDirectory(prefix="csv-excel-", ignore_cleanup_errors=True)
+        self.temporal = tempfile.TemporaryDirectory(prefix="csv-excel-", **SIN_ERRORES_AL_LIMPIAR)
         self.carpeta = Path(self.temporal.name)
         self.ruta = self.carpeta / "agencia.db"
         db = agencia.BaseDatos(str(self.ruta))
@@ -122,7 +125,7 @@ class CSVAbiertoEnExcel(unittest.TestCase):
 
 class RutasDeWindows(unittest.TestCase):
     def setUp(self):
-        self.temporal = tempfile.TemporaryDirectory(prefix="rutas ñ #% ", ignore_cleanup_errors=True)
+        self.temporal = tempfile.TemporaryDirectory(prefix="rutas ñ #% ", **SIN_ERRORES_AL_LIMPIAR)
         self.ruta = os.path.join(self.temporal.name, "datos José Peña", "agencia.db")
         os.makedirs(os.path.dirname(self.ruta))
         db = agencia.BaseDatos(self.ruta)
@@ -164,7 +167,7 @@ class DatosDeUnaVersionAnterior(unittest.TestCase):
     abre vacío. Se buscan esos datos (solo lectura) para ofrecer traerlos."""
 
     def setUp(self):
-        self.temporal = tempfile.TemporaryDirectory(prefix="casa-ficticia-", ignore_cleanup_errors=True)
+        self.temporal = tempfile.TemporaryDirectory(prefix="casa-ficticia-", **SIN_ERRORES_AL_LIMPIAR)
         self.casa = Path(self.temporal.name)
 
     def tearDown(self):
