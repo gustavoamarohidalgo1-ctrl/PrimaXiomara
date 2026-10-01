@@ -3,7 +3,17 @@ name: Servitotal en Windows como en Servicio Exclusivo
 # Las mismas pruebas que pasa el instalador de Servicio Exclusivo (la tía), con los nombres de Servitotal, más la
 # actualización desde la 1.7.2 que tiene instalada la agencia (garantías en días que pasan a meses).
 on:
+  push:
+    paths:
+      - 'agencia.py'
+      - 'instaladores/**'
+      - '.github/windows/**'
+      - '.github/workflows/windows-completo.yml'
   workflow_dispatch:
+
+concurrency:
+  group: windows-completo-${{ github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read     # las pruebas solo leen el repositorio
