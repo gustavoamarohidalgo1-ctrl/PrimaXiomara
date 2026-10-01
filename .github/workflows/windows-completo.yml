@@ -1,0 +1,228 @@
+name: Servitotal en Windows como en Servicio Exclusivo
+
+# Las mismas pruebas que pasa el instalador de Servicio Exclusivo (la tía), con los nombres de Servitotal, más la
+# actualización desde la 1.7.2 que tiene instalada la agencia (garantías en días que pasan a meses).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read     # las pruebas solo leen el repositorio
+
+jobs:
+  instalador:
+    name: Instalador (${{ matrix.os }}, ${{ matrix.modo }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        modo: [ventanas, silencioso]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Instalar, abrir, recorrer, imprimir, actualizar y desinstalar
+        shell: pwsh
+        run: |
+          $extra = @{}
+          if ('${{ matrix.modo }}' -eq 'ventanas') { $extra.ConVentanas = $true }
+          ./.github/windows/probar_instalador.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe @extra
+
+      - name: Actualizar desde la 1.7.2 publicada con datos (garantías en días)
+        if: always()
+        shell: pwsh
+        run: ./.github/windows/actualizar_desde_172.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe
+
+      - name: Actualizar desde una base 1.7.0 con datos
+        if: always()
+        shell: pwsh
+        run: ./.github/windows/actualizar_desde_170.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe
+
+      - name: Pruebas del programa con el Python incluido en el instalador
+        if: always() && matrix.modo == 'silencioso'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\resultados" | Out-Null
+          $py = Join-Path $env:LOCALAPPDATA 'Programs\Servitotal\runtime\python.exe'
+          & $py -X faulthandler -m unittest discover -v 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\resultados\unittest-instalado.txt"
+          exit $LASTEXITCODE
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: resultados-instalador-${{ matrix.os }}-${{ matrix.modo }}
+          path: ${{ runner.temp }}/resultados
+          if-no-files-found: ignore
+
+  antivirus:
+    name: Antivirus en tiempo real (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Encender el antivirus de Windows como en un equipo real
+        shell: pwsh
+        run: ./.github/windows/activar_defender.ps1
+      - name: Instalar y actualizar encima varias veces
+        shell: pwsh
+        run: ./.github/windows/repetir_actualizacion.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe -Veces 8
+      - name: Prueba completa con el antivirus encendido
+        if: always()
+        shell: pwsh
+        run: ./.github/windows/probar_instalador.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: resultados-antivirus-${{ matrix.os }}
+          path: ${{ runner.temp }}/resultados
+          if-no-files-found: ignore
+
+  usuario:
+    name: Cuenta estándar ${{ matrix.cuenta }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        cuenta: [tildes, simple]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Instalar y usar con otra cuenta de Windows
+        shell: pwsh
+        run: |
+          $extra = @{}
+          if ('${{ matrix.cuenta }}' -eq 'simple') { $extra.Usuario = 'Prueba Servitotal' }
+          ./.github/windows/otro_usuario.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe @extra
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: resultados-usuario-${{ matrix.cuenta }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/resultados
+          if-no-files-found: ignore
+
+  codigo:
+    name: Recorrido desde el código (Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+      - name: Recorrido completo (pantalla al 100 %, 125 % y 150 %)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\resultados" | Out-Null
+          $fallos = 0
+          $env:AGENCIA_PRUEBA_CAPTURAS = "$env:RUNNER_TEMP\resultados\capturas"
+          # 100 % en la pantalla chica de la máquina (1024x768) y 125 % / 150 % en 1920x1080, como una portátil real
+          foreach ($prueba in @(@('1', 0, 0), @('1.25', 1920, 1080), @('1.5', 1920, 1080))) {
+            $escala, $ancho, $alto = $prueba
+            if ($ancho) {
+              ./.github/windows/resolucion.ps1 -Ancho $ancho -Alto $alto
+              if ($LASTEXITCODE -ne 0) { Write-Host "::warning::No se pudo poner ${ancho}x${alto}; se omite la escala $escala"; continue }
+            }
+            $env:AGENCIA_PRUEBA_ESCALA = $escala
+            python .github/windows/humo.py . "$env:RUNNER_TEMP\datos-humo-$escala"
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::humo.py falló con escala $escala"; $fallos++ }
+          }
+          exit $fallos
+      - name: Iniciar.bat
+        if: always()
+        shell: pwsh
+        run: |
+          $datos = Split-Path -Parent (Resolve-Path agencia.py)
+          ./.github/windows/abrir_programa.ps1 -Archivo "$PWD\Iniciar.bat" -Proceso pythonw -Datos $datos -Nombre "iniciar-bat-${{ matrix.python }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: resultados-codigo-${{ matrix.python }}
+          path: ${{ runner.temp }}/resultados
+          if-no-files-found: ignore
+
+  portable:
+    name: EXE portable (Crear_EXE.bat)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Crear_EXE.bat
+        shell: cmd
+        run: Crear_EXE.bat < NUL
+      - name: Abrir Servitotal.exe
+        shell: pwsh
+        run: |
+          if (-not (Test-Path Servitotal.exe)) { "No se creó Servitotal.exe"; exit 1 }
+          $datos = Join-Path $env:LOCALAPPDATA 'Servitotal'
+          ./.github/windows/abrir_programa.ps1 -Archivo "$PWD\Servitotal.exe" -Proceso Servitotal -Datos $datos -Nombre 'exe-portable'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: resultados-portable
+          path: ${{ runner.temp }}/resultados
+          if-no-files-found: ignore
+
+  doble-clic:
+    # Recibido por WhatsApp y abierto con doble clic en una Windows con el antivirus en la nube y SmartScreen
+    # encendidos, como una computadora de casa. Se compara con la 1.7.2 publicada.
+    name: Doble clic ${{ matrix.instalador }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        instalador: [nuevo, v1.7.2]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Preparar el instalador a probar
+        shell: pwsh
+        run: |
+          $destino = Join-Path $env:RUNNER_TEMP 'probar.exe'
+          switch ('${{ matrix.instalador }}') {
+            'nuevo'  { Copy-Item instaladores/Servitotal-Windows-x64.exe $destino }
+            'v1.7.2' {
+              Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/ae4d693d2b156190757f490dcc4cfd9186d80108/instaladores/Servitotal-Windows-x64.exe' -OutFile $destino
+              if ((Get-FileHash $destino).Hash -ne '899CD563E7B6E207119E1AD477D0ECDEBA78478207A589ADFA154225625DC49F') { throw 'La 1.7.2 descargada no es la publicada' }
+            }
+          }
+          Get-FileHash $destino | Format-List | Out-String | Write-Host
+          if ((Get-Item $destino).Length -lt 1000000) { throw 'No se obtuvo el instalador' }
+      - name: Computadora como en casa (antivirus en la nube y SmartScreen)
+        shell: pwsh
+        run: ./.github/windows/como_equipo_de_casa.ps1
+      - name: Recibido por WhatsApp y abierto con doble clic
+        shell: pwsh
+        run: ./.github/windows/doble_clic_descargado.ps1 -Instalador "$env:RUNNER_TEMP\probar.exe" -Nombre "Servitotal-${{ matrix.instalador }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: doble-clic-${{ matrix.instalador }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/resultados
+          if-no-files-found: ignore

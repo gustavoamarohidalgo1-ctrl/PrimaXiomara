@@ -55,7 +55,7 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 
 Para actualizar, abra el instalador nuevo: la instalación conserva la carpeta de datos. Si Servitotal está abierto, el instalador pide cerrarlo y pulsar Reintentar, sin cambiar nada mientras tanto. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior. Si el programa no llegara a abrir, el motivo queda en `errores_inicio.log`, dentro de la carpeta de datos (menú Inicio → Servitotal → Datos de la agencia).
 
-En **Propiedades**, el instalador 1.8.0 completo ocupa **11.830.578 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.8.0 completo ocupa **11.830.956 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
@@ -105,11 +105,12 @@ Las pruebas del constructor de Windows requieren `makensis`; las del lanzador de
 
 ### Pruebas en Windows
 
-Tres flujos de GitHub Actions, que se lanzan a mano, comprueban Servitotal en Windows Server 2022 y 2025:
+Cuatro flujos de GitHub Actions, que se lanzan a mano, comprueban Servitotal en Windows Server 2022 y 2025:
 
 - [windows-pruebas.yml](.github/workflows/windows-pruebas.yml): todas las pruebas con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits.
 - [windows-smoke.yml](.github/workflows/windows-smoke.yml): el instalador, con la protección en tiempo real de Microsoft Defender activada.
 - [windows-python.yml](.github/workflows/windows-python.yml): el paquete de código con Python oficial.
+- [windows-completo.yml](.github/workflows/windows-completo.yml): las mismas pruebas que pasa el instalador de Servicio Exclusivo (asistente con clics y en silencio, recorrido completo con impresión en Word y PDF, ocho actualizaciones seguidas con el antivirus encendido, cuentas estándar con tildes, pantallas al 100 %, 125 % y 150 %, EXE de Crear_EXE.bat y doble clic con SmartScreen), más la actualización desde la 1.7.2 publicada con garantías en días.
 
 Con el código anterior, las 346 pruebas de entonces pasaron en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737030968) con todas esas versiones de Python y con el mismo Python incluido en el instalador. El programa igualado con Servicio Exclusivo todavía no se ejecutó en Windows: falta lanzar esos flujos.
 
@@ -141,7 +142,9 @@ Ninguna de estas pruebas reproduce SmartScreen, el Control inteligente de aplica
 - Si una ficha ya guardada tiene un dato inválido, al salir se dice cuál y se ofrece volver a lo guardado.
 - La carpeta adicional de copias solo se usa si es la elegida (lleva la marca `.copias-servitotal`): no se escriben datos en otro USB que tome su letra, y uno desconectado no avisa en cada arranque. Al traer los datos de la versión anterior también se trae esa carpeta.
 - La versión se ve en el menú lateral y en `errores.log`.
-- Instalador de Windows sin complementos (plugins), como el de Servicio Exclusivo: comprueba si Servitotal está abierto intentando abrir para escritura los archivos que el programa tiene cargados, en vez de Restart Manager (con el aviso repetido, en Windows Server 2025 llegó a escribir en una carpeta equivocada), y comprueba Windows de 64 bits sin cargar nada antes de mostrar su ventana.
+- Instalador de Windows sin complementos (plugins), como el de Servicio Exclusivo: comprueba si Servitotal está abierto intentando abrir para escritura los archivos que el programa tiene cargados, en vez de Restart Manager, y comprueba Windows de 64 bits sin cargar nada antes de mostrar su ventana.
+- Al pulsar «Instalar», Siguiente, Atrás y Cancelar quedan desactivados mientras se comprueba si Servitotal está abierto y mientras se ve el aviso «Reintentar». Antes, un segundo clic durante esa espera se atendía por debajo del aviso y la instalación empezaba dos veces a la vez (en Windows real terminaba con «Error abriendo archivo para escritura»).
+- Abierto desde «Terminar» del instalador, Servitotal vuelve a mostrarse al frente de las demás ventanas, como en la 1.7.2 (es lo único que el programa tiene además del de Servicio Exclusivo, y no cambia nada en pantalla).
 - Instalador de Windows: un archivo que no se pudo escribir ya no se puede «Omitir», un instalador más viejo advierte antes de reemplazar uno más nuevo y el desinstalador aclara que las copias de Documentos y de la carpeta adicional no se borran.
 - Las pruebas nunca usan la carpeta de datos real, aunque se ejecuten desde esta carpeta. Las cuatro que comprueban que los paquetes de `instaladores/` lleven este mismo código fallan hasta que se vuelvan a generar.
 

@@ -321,6 +321,41 @@ cambio("nunca ofrecer la base de otra agencia (función)", '''def buscar_datos_a
 
 def buscar_datos_anteriores(''')
 
+cambio("al frente al abrirlo desde «Terminar» del instalador (función)", '''def reabrir_con_tk_moderno():''', '''def traer_al_frente(root):
+    """Windows puede dejar detrás de las demás ventanas un programa abierto por otro que se está cerrando (el botón
+    «Terminar» del instalador): parecería que no se abrió nada. Se muestra un momento por encima de todo y toma el
+    foco; luego vuelve a ser una ventana normal."""
+    if not ES_WINDOWS:
+        return
+
+    def soltar():
+        try:
+            root.attributes("-topmost", False)
+        except tk.TclError:          # la ventana ya se cerró
+            pass
+
+    try:
+        root.deiconify()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        root.after(1500, soltar)
+    except tk.TclError:
+        pass
+
+
+def reabrir_con_tk_moderno():''')
+cambio("al frente al abrirlo desde «Terminar» del instalador", '''        root.destroy()
+        return
+    if aviso:
+        root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
+    elif oferta:''', '''        root.destroy()
+        return
+    traer_al_frente(root)
+    if aviso:
+        root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
+    elif oferta:''')
+
 
 # ---------------------------------------------------------------- Pruebas de Servicio Exclusivo
 # Se usan las mismas pruebas; solo cambian las que miran los datos propios de cada agencia.

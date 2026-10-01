@@ -7090,6 +7090,29 @@ def preparar_base():
     return aviso, buscar_restauracion()
 
 
+def traer_al_frente(root):
+    """Windows puede dejar detrás de las demás ventanas un programa abierto por otro que se está cerrando (el botón
+    «Terminar» del instalador): parecería que no se abrió nada. Se muestra un momento por encima de todo y toma el
+    foco; luego vuelve a ser una ventana normal."""
+    if not ES_WINDOWS:
+        return
+
+    def soltar():
+        try:
+            root.attributes("-topmost", False)
+        except tk.TclError:          # la ventana ya se cerró
+            pass
+
+    try:
+        root.deiconify()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        root.after(1500, soltar)
+    except tk.TclError:
+        pass
+
+
 def reabrir_con_tk_moderno():
     """El Python de Xcode en macOS trae Tk 8.5, que deja la ventana en negro. Si hay otro Python con
     Tk 8.6 o más, el programa se reabre con él (solo ocurre en esa situación)."""
@@ -7173,6 +7196,7 @@ def main():
         avisar_error(root, *sys.exc_info())
         root.destroy()
         return
+    traer_al_frente(root)
     if aviso:
         root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
     elif oferta:

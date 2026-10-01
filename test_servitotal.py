@@ -595,6 +595,33 @@ class DatosQueYaTeniaServitotal(unittest.TestCase):
         self.assertIn("porcentaje", agencia.validar_condiciones_financieras({"comision": "", "porcentaje": ""}))
 
 
+class AlFrenteAlAbrir(unittest.TestCase):
+    """Abierto desde «Terminar» del instalador, Servitotal se muestra por encima de todo un momento (Windows 11 lo
+    dejaba detrás de las demás ventanas y parecía que no se abría)."""
+
+    def test_en_windows_se_pone_encima_y_luego_vuelve_a_ser_normal(self):
+        root = mock.Mock()
+        with mock.patch.object(agencia, "ES_WINDOWS", True):
+            agencia.traer_al_frente(root)
+        root.attributes.assert_called_once_with("-topmost", True)
+        root.focus_force.assert_called_once_with()
+        milisegundos, soltar = root.after.call_args.args
+        self.assertEqual(milisegundos, 1500)
+        soltar()
+        root.attributes.assert_called_with("-topmost", False)
+
+    def test_fuera_de_windows_no_hace_nada(self):
+        root = mock.Mock()
+        with mock.patch.object(agencia, "ES_WINDOWS", False):
+            agencia.traer_al_frente(root)
+        root.assert_not_called()
+        self.assertEqual(root.method_calls, [])
+
+    def test_main_lo_llama_al_abrir(self):
+        principal = agencia.main.__code__.co_names
+        self.assertIn("traer_al_frente", principal)
+
+
 class IgualAlProgramaDeLaTia(unittest.TestCase):
     """agencia.py de Servitotal es el de Servicio Exclusivo con solo la capa de Servitotal (igualar_con_tia.py).
     En la carpeta real, Servitotal vive dentro de la carpeta de la tía."""
