@@ -137,10 +137,14 @@ INSTALADORES
   contra virus y amenazas > Historial de proteccion para revisarlo.
   En Propiedades, el instalador 1.8.0 completo ocupa 11.830.956 bytes.
   Si la descarga quedo incompleta, descargue nuevamente el archivo completo.
-  El instalador 1.7.2 se probo instalando sobre 1.7.1, abriendo el programa
-  con su acceso del Escritorio, trayendo datos ficticios de la version
-  anterior y desinstalando, en Windows Server 2022 y 2025. Esas pruebas no
-  reproducen SmartScreen, antivirus ni la configuracion del equipo receptor.
+  El instalador 1.8.0 se probo en Windows Server 2022 y 2025 (46 pruebas,
+  todas correctas): con clics y en silencio, sobre la 1.7.1 abierta (avisa y
+  ofrece Reintentar), actualizando desde la 1.7.2 con datos ficticios (copia
+  previa; 30 dias pasan a 1 mes), ocho veces seguidas con el antivirus
+  encendido, con cuentas sin administrador (tambien con tildes y enie),
+  imprimiendo el contrato en Word y PDF, y abierto con doble clic como
+  recibido por WhatsApp (SmartScreen: Mas informacion > Ejecutar de todas
+  formas). No reproducen otros antivirus ni la configuracion de cada equipo.
   Si el programa no abre, el motivo queda en el archivo errores_inicio.log de
   la carpeta de datos (menu Inicio > Servitotal > Datos de la agencia).
   Los datos se guardan aparte del programa:

@@ -105,30 +105,26 @@ Las pruebas del constructor de Windows requieren `makensis`; las del lanzador de
 
 ### Pruebas en Windows
 
-Cuatro flujos de GitHub Actions, que se lanzan a mano, comprueban Servitotal en Windows Server 2022 y 2025:
+Cuatro flujos de GitHub Actions comprueban Servitotal en Windows Server 2022 y 2025:
 
 - [windows-pruebas.yml](.github/workflows/windows-pruebas.yml): todas las pruebas con Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13 y 3.14 de 64 bits.
 - [windows-smoke.yml](.github/workflows/windows-smoke.yml): el instalador, con la protección en tiempo real de Microsoft Defender activada.
 - [windows-python.yml](.github/workflows/windows-python.yml): el paquete de código con Python oficial.
-- [windows-completo.yml](.github/workflows/windows-completo.yml): las mismas pruebas que pasa el instalador de Servicio Exclusivo (asistente con clics y en silencio, recorrido completo con impresión en Word y PDF, ocho actualizaciones seguidas con el antivirus encendido, cuentas estándar con tildes, pantallas al 100 %, 125 % y 150 %, EXE de Crear_EXE.bat y doble clic con SmartScreen), más la actualización desde la 1.7.2 publicada con garantías en días.
+- [windows-completo.yml](.github/workflows/windows-completo.yml) (también al subir cambios del programa o de los instaladores): las mismas pruebas que pasa el instalador de Servicio Exclusivo (asistente con clics y en silencio, recorrido completo con impresión en Word y PDF, ocho actualizaciones seguidas con el antivirus encendido, cuentas estándar con tildes, pantallas al 100 %, 125 % y 150 %, EXE de Crear_EXE.bat y doble clic con SmartScreen), más la actualización desde la 1.7.2 publicada con garantías en días.
 
-Con el código anterior, las 346 pruebas de entonces pasaron en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737030968) con todas esas versiones de Python y con el mismo Python incluido en el instalador. El programa igualado con Servicio Exclusivo todavía no se ejecutó en Windows: falta lanzar esos flujos.
+Servitotal 1.8.0 (rama `prueba-1.8.0`, commit `517d7cb`) pasó los 46 trabajos de los cuatro flujos con este mismo instalador (SHA-256 `17435037c577e3c0012109197eba81b13ac344ecbf6f46154c959922a0d6c7fc`):
 
-Los paquetes 1.7.2 se comprobaron de principio a fin en [Windows Server 2022 y 2025](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737794724), con carpetas que contienen espacios y «ñ». En cada apertura, la prueba cierra el programa con el botón de la ventana, como lo haría la usuaria.
+- [Todas las pruebas](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870125339) (392) con Python 3.8 a 3.14 y con el Python incluido en el instalador.
+- [Instalador y ZIP portable](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870115497): sobre la 1.7.1 publicada, con clics y con la 1.7.1 abierta: avisó, ofreció Reintentar y, tras cerrarla, terminó; el programa se abrió solo, al frente. Defender actualizado no detectó nada; datos anteriores, entorno de otro Python, ícono anclado antiguo, datos dentro de la instalación anterior y desinstalación conservando los datos.
+- [Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870120580): Python 3.14.7 de python.org abrió dos veces el paquete de código.
+- [Como en Servicio Exclusivo](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870155855):
+  - Instalar con ventanas y en silencio, recorrer el programa con datos ficticios en su carpeta de datos e imprimir el contrato en Word y en PDF; negarse a actualizar o desinstalar con el programa abierto; actualizar encima sin tocar `agencia.db`; desinstalar conservando los datos.
+  - Actualizar desde la 1.7.2 publicada con datos creados por la propia 1.7.2: copia previa, 30 días → «1 mes», 45 días → «2 meses», el contrato firmado intacto y el programa abre desde su acceso sin avisos de error. También desde una base 1.7.0.
+  - Ocho actualizaciones seguidas con la protección en tiempo real encendida: todas completas, de 5 a 10 segundos.
+  - Cuentas estándar «José Peña» y «Prueba Servitotal»; pantallas al 100 %, 125 % y 150 % sin botones cortados; `Iniciar.bat` y el EXE de `Crear_EXE.bat`.
+  - Recibido «por WhatsApp» (marcado como descargado de Internet) y abierto con doble clic con SmartScreen y el antivirus en la nube: el asistente apareció a los 9 a 12 segundos, como la 1.7.2 publicada (14 a 17 s).
 
-- **Instalador:**
-  - Se instaló sobre la versión 1.7.1 publicada, pulsando Siguiente, Instalar y Terminar en el asistente; el programa se abrió solo, al frente de las demás ventanas.
-  - Microsoft Defender actualizado no detectó nada en el instalador, en lo instalado ni en el ZIP.
-  - Con la versión anterior abierta, avisó y ofreció Reintentar; tras cerrarla, la instalación terminó bien.
-  - Con la protección en tiempo real de Microsoft Defender activada.
-  - Abrió el programa con el mismo acceso directo del Escritorio.
-  - Trajo una base ficticia de la versión anterior respondiendo «Sí» a su aviso.
-  - Abrió con variables de otro Python (`PYTHONHOME`, `PYTHONPATH`, `TCL_LIBRARY`).
-  - Se desinstaló conservando los datos.
-- **ZIP portable:** verificó la firma de Python Software Foundation en `Servitotal.exe` y repitió la apertura, los datos anteriores, el entorno ajeno y el diagnóstico.
-- **Python oficial:** la [prueba con Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36737036079) instaló Python 3.14.7 desde python.org y abrió dos veces el paquete de código.
-
-Ninguna de estas pruebas reproduce SmartScreen, el Control inteligente de aplicaciones ni el antivirus del equipo de una usuaria. Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py) y [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) modifican accesos, registro y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero.
+Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py), [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) y los de [.github/windows](.github/windows) modifican accesos, registro, cuentas y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero. Ninguna prueba reproduce otro antivirus (McAfee, Avast...) ni el Control inteligente de aplicaciones del equipo de una usuaria.
 
 ## Cambios de 1.8.0
 
