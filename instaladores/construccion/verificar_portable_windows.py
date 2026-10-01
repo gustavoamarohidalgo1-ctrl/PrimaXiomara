@@ -1,10 +1,10 @@
 """Comprueba el ZIP portable de Servitotal en un runner Windows efímero de GitHub, como lo usaría la agencia.
 
 Extrae el ZIP en una carpeta con espacios y «ñ», verifica que Servitotal.exe sea el Python firmado por Python
-Software Foundation, lo abre con doble clic simulado (sin argumentos), trae los datos de la versión anterior
-respondiendo a su aviso, lo abre con variables de otro Python y prueba Diagnosticar Servitotal.exe. Cada apertura
-se cierra con el botón de la ventana. No reproduce SmartScreen, el Control inteligente de aplicaciones ni el
-antivirus del equipo receptor.
+Software Foundation, lo abre con doble clic simulado (sin argumentos), comprueba que no toca los datos de la versión
+anterior (con el ZIP se traen a mano, con Ctrl+Shift+B), lo abre con variables de otro Python y prueba Diagnosticar
+Servitotal.exe. Cada apertura se cierra con el botón de la ventana. No reproduce SmartScreen, el Control inteligente
+de aplicaciones ni el antivirus del equipo receptor.
 """
 import argparse
 from datetime import datetime, timezone
@@ -19,21 +19,18 @@ import tempfile
 import traceback
 import zipfile
 
-from verificar_windows import (IDNO, IDYES, PREGUNTA_ANTERIOR, VERSION, Windows, analizar_con_defender,
-                               comprobar_sin_errores, contar, crear_base_anterior, entorno_de_otro_python, ejecutar,
-                               huella_publicada, usar_programa)
+from verificar_windows import (VERSION, Windows, analizar_con_defender, comprobar_sin_errores, contar,
+                               crear_base_anterior, entorno_de_otro_python, ejecutar, huella_publicada, usar_programa)
 
 
 NOMBRE = f"Servitotal-{VERSION}"
 PRUEBA = r'''
 import importlib.util, json, os, sqlite3, sys, tkinter
-import agencia, contratos_servitotal
-pyc = []
-for m in (agencia, contratos_servitotal):
-    cache = importlib.util.cache_from_source(m.__file__)
-    datos = open(cache, "rb").read()
-    pyc.append(bool(int.from_bytes(datos[4:8], "little") & 1)
-               and datos[8:16] == importlib.util.source_hash(open(m.__file__, "rb").read()))
+import agencia
+cache = importlib.util.cache_from_source(agencia.__file__)
+datos = open(cache, "rb").read()
+pyc = [bool(int.from_bytes(datos[4:8], "little") & 1)
+       and datos[8:16] == importlib.util.source_hash(open(agencia.__file__, "rb").read())]
 r = tkinter.Tk(); r.update()
 print("PORTABLE " + json.dumps({
     "aislado": sys.flags.isolated, "ruta": sys.path, "prefijo": sys.prefix, "agencia": agencia.__file__,
@@ -122,8 +119,7 @@ def main():
                     paquete.extractall(carpeta.parent)
                 evidencia["primer_nivel"] = sorted(p.name for p in carpeta.iterdir())
                 raiz, aqui = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent
-                pares = [(carpeta / "app" / n, raiz / n) for n in
-                         ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")]
+                pares = [(carpeta / "app" / n, raiz / n) for n in ("agencia.py", "logo.png", "icono.png", "icono.ico")]
                 pares += [(carpeta / "app/abrir_portable.pyw", aqui / "abrir_portable.pyw"),
                           (carpeta / "Lib/sitecustomize.py", aqui / "arranque_portable.py")]
                 for empaquetado, fuente in pares:
@@ -150,12 +146,11 @@ def main():
                     raise RuntimeError("El Python portable busca módulos fuera de su carpeta: " + str(resultado["ruta"]))
                 if not dentro(resultado["tcl"], carpeta / "tcl"):
                     raise RuntimeError("Tcl/Tk no es el incluido: " + str(resultado["tcl"]))
-                if resultado["pyc_de_la_fuente"] != [True, True]:
+                if resultado["pyc_de_la_fuente"] != [True]:
                     raise RuntimeError("Los .pyc del ZIP no corresponden al código incluido")
 
             def abrir(evidencia):
-                usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal,
-                              respuestas={PREGUNTA_ANTERIOR: IDNO})
+                usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal)
                 comprobar_sin_errores(datos, evidencia)
                 evidencia["datos"] = contar(datos / "agencia.db")
                 if any(evidencia["datos"].values()):
@@ -165,15 +160,15 @@ def main():
                     raise RuntimeError("El programa guardó datos junto al código: " + str(guardadas))
 
             def datos_anteriores(evidencia):
+                # Como en Servicio Exclusivo, sólo el instalador busca solo los datos de la versión anterior; con el
+                # ZIP se traen con Ctrl+Shift+B > «Traer datos de otro archivo…». Abrirlo no debe tocarlos.
                 anterior = escritorio / "Agencia anterior portable" / "agencia.db"
                 evidencia["huella_antes"] = crear_base_anterior(anterior)
-                usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal,
-                              respuestas={"Traer los datos de la versión anterior": IDYES,
-                                          "Datos recuperados": "unico"})
+                usar_programa([exe], windows, evidencia, entorno=entorno, cwd=temporal)
                 comprobar_sin_errores(datos, evidencia)
                 evidencia["datos"] = contar(datos / "agencia.db")
-                if evidencia["datos"] != {"clientes": 1, "trabajadoras": 1, "colocaciones": 1}:
-                    raise RuntimeError("No se trajeron los datos de la versión anterior")
+                if any(evidencia["datos"].values()):
+                    raise RuntimeError("El ZIP trajo datos sin que nadie lo pidiera")
                 if hashlib.sha256(anterior.read_bytes()).hexdigest() != evidencia["huella_antes"]:
                     raise RuntimeError("Se modificó la base de la versión anterior")
 

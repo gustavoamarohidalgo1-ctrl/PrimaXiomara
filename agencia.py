@@ -12,72 +12,58 @@ import os
 import re
 import sys
 import html
+import math
 import json
 import sqlite3
-import math
 import threading
 import unicodedata
 from contextlib import contextmanager
 from decimal import Decimal, DecimalException, ROUND_HALF_EVEN, localcontext
 from functools import lru_cache
+from html.parser import HTMLParser
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
-
-def _aviso_de_inicio(texto):
-    """Sin consola (pyw) un fallo al abrir pasaría sin que nadie lo note: en Windows se muestra en una ventana."""
-    try:
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, texto, "Servitotal", 0x50010)   # error, al frente y encima de todo
-    except Exception:
-        print(texto, file=sys.stderr)
-
-
-try:
-    from contratos_servitotal import renderizar_hoja_servicio
-except ImportError as _error:   # actualización a medias: se copió agencia.py sin el resto de archivos
-    _aviso_de_inicio(
-        "No se pudo abrir Servitotal: falta el archivo contratos_servitotal.py junto a agencia.py.\n\n"
-        "Copie TODOS los archivos de la actualización en la misma carpeta (no solo agencia.py) o use el "
-        f"instalador Servitotal-Windows-x64.exe, que ya los trae.\n\nDetalle: {_error}")
-    raise SystemExit(1)
+if sys.platform == "win32":  # Python incluido en el instalador: indicar dónde están los archivos de Tcl/Tk
+    # Siempre los propios: si otro programa dejó TCL_LIBRARY en el entorno de Windows, apuntaría a otra
+    # versión de Tcl y la ventana no podría abrirse («version conflict for package Tcl»).
+    for _variable, _carpeta, _archivo in (("TCL_LIBRARY", "tcl8.6", "init.tcl"), ("TK_LIBRARY", "tk8.6", "tk.tcl")):
+        _ruta = os.path.join(sys.base_prefix, "tcl", _carpeta)
+        if os.path.isfile(os.path.join(_ruta, _archivo)):
+            os.environ[_variable] = _ruta
 
 try:
     import tkinter as tk
     import tkinter.font as tkfont
     from tkinter import ttk, messagebox
 except ImportError:  # Python sin tkinter: avisar en vez de cerrarse sin decir nada (pyw no tiene consola)
-    _aviso_de_inicio("Este Python no incluye tkinter, que el programa necesita.\n\nReinstale Python desde "
-                     "https://www.python.org/downloads/ y deje marcada la opción «tcl/tk and IDLE», o use el "
-                     "instalador Servitotal-Windows-x64.exe, que trae su propio Python.")
+    _AVISO = ("Este Python no incluye tkinter, que el programa necesita.\n\nReinstale Python desde "
+              "https://www.python.org/downloads/ y deje marcada la opción «tcl/tk and IDLE».")
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, _AVISO, "Agencia de Empleos", 0x10)
+    except Exception:
+        print(_AVISO, file=sys.stderr)
     raise SystemExit(1)
-
-if sys.platform == "win32":
-    # Usar siempre el Tcl/Tk que acompaña a este Python (el incluido en el instalador o el de python.org). Otro
-    # programa puede dejar TCL_LIBRARY apuntando a su propia versión y entonces Tk no arrancaría.
-    for _variable, _carpeta in (("TCL_LIBRARY", f"tcl{tk.TclVersion}"), ("TK_LIBRARY", f"tk{tk.TkVersion}")):
-        _ruta = os.path.join(sys.base_prefix, "tcl", _carpeta)
-        if os.path.isdir(_ruta):
-            os.environ[_variable] = _ruta
 
 # ---------------------------------------------------------------- Configuración
 AGENCIA_NOMBRE = "Agencia de Empleos"
 AGENCIA_ESLOGAN = "Servitotal"
-AGENCIA_CARPETA_DATOS = "Servitotal"  # identidad propia: nunca comparte datos con otra agencia
-AGENCIA_NOMBRE_CONTRATO = "Agencia de Empleos S.T Servitotal"
-AGENCIA_DIRECCION = ("Av. Nicolás Ayllón N° 5695, 2do piso, oficina 201, Carretera Central, "
-                     "distrito de Ate-Vitarte")
+VERSION = "1.8.0"          # se ve en el menú lateral y en los registros; los instaladores la toman de aquí
+# Servitotal usa el mismo programa que Servicio Exclusivo (instaladores/construccion/igualar_con_tia.py lo copia);
+# solo cambian sus colores, sus datos y su carpeta de datos, que nunca se mezcla con la de otra agencia.
+AGENCIA_CARPETA_DATOS = "Servitotal"      # datos en .../Servitotal y copias en Documentos/Respaldos Servitotal
+AGENCIA_NOMBRE_EN_CONTRATO = "S.T Servitotal"   # «la agencia de empleos “S.T SERVITOTAL”»
+AGENCIA_RUC = ""                          # Servitotal se identifica por su representante
 AGENCIA_REPRESENTANTE = "Xiomara Amaro Arellano"
 AGENCIA_DNI_REPRESENTANTE = "76395760"
-AGENCIA_RUC = ""  # esta agencia se identifica mediante su representante; no se reutiliza un RUC ajeno
-AGENCIA_DOMICILIO = AGENCIA_DIRECCION
+AGENCIA_DOMICILIO = ("Av. Nicolás Ayllón N° 5695, 2do piso, oficina 201, Carretera Central, "
+                     "distrito de Ate-Vitarte")
 CIUDAD_CONTRATO = "Lima"
 MONEDA = "S/"
-COBRO_DEFECTO = "0.00"
-PORCENTAJE_DEFECTO = "50"
-MESES_GARANTIA = 2  # opción disponible; Servitotal conserva su propuesta de 30 días
-DIAS_GARANTIA = 30
-UNIDAD_GARANTIA_DEFECTO = "días"
+COBRO_DEFECTO = ""         # sin propuesta: en cada contrato se escribe el porcentaje del sueldo (o el pago único)
+PORCENTAJE_DEFECTO = None  # p. ej. 20: la comisión propuesta sería el 20 % del sueldo; None = sin propuesta
+MESES_GARANTIA = 2         # garantía por defecto, en meses (cada cliente puede acordar otra)
 FMT_FECHA = "%d/%m/%Y"
 
 
@@ -86,6 +72,17 @@ def carpeta_app():
     if getattr(sys, "frozen", False):  # programa empaquetado con PyInstaller
         return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def instalado_con_runtime(plataforma=None):
+    """True si el programa está en una instalación de Windows: carpeta «app» junto a «runtime» con su Python.
+    Vale aunque lo abra otro Python (p. ej. doble clic en app\\iniciar.pyw con un Python del sistema)."""
+    plataforma = sys.platform if plataforma is None else plataforma
+    if not plataforma.startswith("win"):
+        return False
+    app = carpeta_app()
+    return (os.path.basename(os.path.normpath(app)).lower() == "app"
+            and os.path.isfile(os.path.join(os.path.dirname(os.path.normpath(app)), "runtime", "pythonw.exe")))
 
 
 def carpeta_datos(argv=None, entorno=None, plataforma=None, casa=None):
@@ -102,6 +99,10 @@ def carpeta_datos(argv=None, entorno=None, plataforma=None, casa=None):
         return argv[argv.index("--datos") + 1]
     if entorno.get("AGENCIA_DATOS"):
         return entorno["AGENCIA_DATOS"]
+    if not getattr(sys, "frozen", False) and instalado_con_runtime(plataforma):
+        # Instalación de Windows abierta sin --datos (p. ej. doble clic en app\iniciar.pyw): los datos van a la
+        # carpeta del usuario, como con el acceso directo, y nunca dentro de la carpeta del programa.
+        return os.path.join(entorno.get("LOCALAPPDATA") or os.path.join(casa, "AppData", "Local"), AGENCIA_CARPETA_DATOS)
     if getattr(sys, "frozen", False):
         junto_al_programa = os.path.dirname(sys.executable)
         if os.path.exists(os.path.join(junto_al_programa, "agencia.db")):   # instalación antigua: datos junto al .exe
@@ -140,8 +141,7 @@ TIPOS_SERVICIO = list(AREAS)   # lo que se elige en «Tipo de servicio» del cli
 PEDIDOS_POR_ENLAZAR = ("Pendiente", "Buscando")  # clientes que aún esperan trabajadora
 SI_NO = ["Sí", "No"]
 ESTADOS_CLIENTE = ["Pendiente", "Buscando", "En entrevista", "Colocado", "Cancelado"]
-ESTADOS_TRABAJADORA = ["Disponible", "En proceso", "Trabajando", "No disponible"]
-RESULTADOS_AGENCIA = ["Pendiente", "Aprobada", "Rechazada"]
+ESTADOS_TRABAJADORA = ["Disponible", "En proceso", "Trabajando"]   # los pone el programa según sus asignaciones
 # Garantía que puede acordar cada cliente (en el contrato se puede escribir cualquier número de meses)
 OPCIONES_GARANTIA = ["Sin garantía"] + [f"{n} mes" if n == 1 else f"{n} meses" for n in range(1, 7)]
 
@@ -249,6 +249,14 @@ def dinero(valor):
         return f"{MONEDA} {n:,.2f}"
 
 
+def normalizar_sueldo(texto):
+    """«1.500» es mil quinientos: un sueldo nunca lleva tres decimales, así que un único punto seguido de exactamente
+    tres cifras se toma como separador de miles, como se suele escribir a mano. Lo demás queda tal como se escribió."""
+    texto = "" if texto is None else str(texto).strip()
+    cifras = texto.replace(MONEDA, "").replace(" ", "").replace(" ", "")
+    return cifras.replace(".", "") if re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", cifras) else texto
+
+
 def resumen_ganancias(colocaciones, clientes, fecha_hoy=None):
     """Suma importes decimales exactos y conserva la API float en casos normales.
 
@@ -343,8 +351,6 @@ CAMPOS_CLIENTE = [
     ("mascotas", "¿Tiene mascotas?", "combo", SI_NO),
     ("tareas", "Tareas a realizar", "text"),
     ("requisitos", "Requisitos (edad, experiencia...)", "text"),
-    ("fecha_necesita", "¿Para cuándo la necesita?"),
-    ("notas", "Notas", "text"),
 ]
 
 DOCUMENTOS = [
@@ -366,17 +372,9 @@ CAMPOS_TRABAJADORA = [
     ("tipo_servicio", "Especialidad", "autocompletar", TIPOS_SERVICIO),
     ("cama_adentro", "¿Acepta cama adentro?", "combo", SI_NO),
     ("experiencia", "Años de experiencia"),
-    ("sueldo_esperado", f"Sueldo que pide ({MONEDA})"),
     ("referencias", "Referencias (trabajos anteriores)", "text"),
     (SECCION, "Documentos"),
     *[(clave, texto, "check") for clave, texto in DOCUMENTOS],
-    (SECCION, "Entrevista con la agencia"),
-    ("entrevista_fecha", "Fecha (dd/mm/aaaa)"),
-    ("entrevista_resultado", "Resultado", "combo", RESULTADOS_AGENCIA),
-    ("entrevista_notas", "Notas de la entrevista", "text"),
-    (SECCION, "Estado"),
-    ("estado", "Estado", "combo", ESTADOS_TRABAJADORA),
-    ("notas", "Notas", "text"),
 ]
 
 # Enlace entre un cliente y una trabajadora (tabla "colocaciones"). Solo define las columnas.
@@ -386,7 +384,7 @@ CAMPOS_COLOCACION = [(clave, clave) for clave in (
     "contrato_firmado", "fecha_firma", "firma_cliente", "firma_trabajadora", "firma_agencia",
     "garantia", "meses_garantia", "fecha_inicio", "fin_garantia", "reemplazo_de",
     # datos que se imprimen en el contrato (se pueden revisar antes de imprimir)
-    "fecha_contrato", "puesto", "modalidad", "descanso", "dias_garantia", "contrato_html")]
+    "fecha_contrato", "puesto", "modalidad", "descanso", "contrato_html")]
 
 
 def claves(campos):
@@ -409,27 +407,6 @@ NUMEROS = ("cero", "un", "dos", "tres", "cuatro", "cinco", "seis", "siete", "och
            "veintiún", "veintidós", "veintitrés", "veinticuatro", "veinticinco", "veintiséis", "veintisiete",
            "veintiocho", "veintinueve")
 DECENAS = {3: "treinta", 4: "cuarenta", 5: "cincuenta", 6: "sesenta", 7: "setenta", 8: "ochenta", 9: "noventa"}
-
-
-def coincidencias(cliente, t):
-    """En qué puntos una trabajadora coincide con el pedido del cliente."""
-    r = []
-    zona = (cliente.get("zona") or "").strip().lower()
-    if zona and zona == (t.get("zona") or "").strip().lower():
-        r.append("zona")
-    tipo = cliente.get("tipo_servicio")
-    if tipo and (tipo == t.get("tipo_servicio")
-                 or (tipo == "Cama adentro" and t.get("cama_adentro") == "Sí")):
-        r.append("servicio")
-    ofrece, pide = leer_numero(cliente.get("sueldo_ofrecido")), leer_numero(t.get("sueldo_esperado"))
-    if ofrece is not None and pide is not None and pide <= ofrece:
-        r.append("sueldo")
-    if t.get("entrevista_resultado") == "Aprobada":
-        r.append("entrevista")
-    if len(docs_presentados(t)) == len(DOCUMENTOS):
-        r.append("documentos")
-    return r
-
 
 
 @lru_cache(maxsize=4096)
@@ -524,14 +501,7 @@ def meses_del_cliente(cli):
 
 
 def con_garantia(c):
-    if c.get("garantia") == "No":
-        return False
-    if c.get("dias_garantia") not in (None, ""):
-        try:
-            if int(c["dias_garantia"]) > 0:
-                return True
-        except (TypeError, ValueError):
-            return False
+    # los enlaces antiguos sin dato tienen garantía
     return c.get("garantia") != "No" and str(c.get("meses_garantia") or MESES_GARANTIA) != "0"
 
 
@@ -542,63 +512,6 @@ def meses_de_garantia(c):
         return int(c.get("meses_garantia") or MESES_GARANTIA)
     except ValueError:
         return MESES_GARANTIA
-
-
-def plazo_garantia(c):
-    """Plazo acordado: conserva días antiguos y permite también meses."""
-    if not con_garantia(c):
-        return 0, "meses"
-    try:
-        dias = int(c.get("dias_garantia") or 0)
-        if dias > 0:
-            return dias, "días"
-        meses = c.get("meses_garantia")
-        if meses not in (None, ""):
-            return max(0, int(meses)), "meses"
-    except (TypeError, ValueError):
-        return 0, "meses"
-    return (DIAS_GARANTIA, "días") if UNIDAD_GARANTIA_DEFECTO == "días" else (MESES_GARANTIA, "meses")
-
-
-def plazo_del_cliente(cli):
-    """Una preferencia explícita prevalece sobre la propuesta comercial."""
-    texto = str(cli.get("meses_garantia") or "").strip()
-    if texto:
-        return meses_del_cliente(cli), "meses"
-    if cli.get("garantia") == "No":
-        return 0, "meses"
-    if cli.get("dias_garantia") not in (None, ""):
-        return max(0, int(cli["dias_garantia"])), "días"
-    return (DIAS_GARANTIA, "días") if UNIDAD_GARANTIA_DEFECTO == "días" else (MESES_GARANTIA, "meses")
-
-
-def texto_plazo_garantia(c, letras=False):
-    cantidad, unidad = plazo_garantia(c)
-    if not cantidad:
-        return "Sin garantía"
-    unidad = "día" if unidad == "días" and cantidad == 1 else "mes" if unidad == "meses" and cantidad == 1 else unidad
-    numero = f"{numero_en_letras(cantidad)} ({cantidad})" if letras else str(cantidad)
-    return f"{numero} {unidad}"
-
-
-def vencimiento_garantia(inicio, c):
-    cantidad, unidad = plazo_garantia(c)
-    if not cantidad:
-        return None
-    return inicio + timedelta(days=cantidad) if unidad == "días" else sumar_meses(inicio, cantidad)
-
-
-def normalizar_plazo(datos):
-    """Los dos campos editables representan un solo plazo; nunca se suman."""
-    dias = int(datos.get("dias_garantia") or 0)
-    meses = int(datos.get("meses_garantia") or 0)
-    if dias < 0 or meses < 0:
-        raise ValueError("El plazo de garantía no puede ser negativo.")
-    if dias:
-        meses = 0
-    datos.update(dias_garantia=str(dias), meses_garantia=str(meses),
-                 garantia="Sí" if dias or meses else "No")
-    return datos
 
 
 def porcentaje_de(monto, sueldo):
@@ -632,6 +545,10 @@ def origen_garantia(c, alternativa=None):
 
 def validar_condiciones_financieras(datos):
     """Valida importes y, cuando están presentes, fecha y plazo del contrato."""
+    if str(datos.get("comision") or "").strip() == "":
+        if str(datos.get("porcentaje") or "").strip() and not str(datos.get("sueldo_acordado") or "").strip():
+            return "Para calcular la comisión con el porcentaje, escriba el sueldo mensual (o escriba el pago único)."
+        return "Escriba la comisión: el porcentaje del sueldo o el pago único a la agencia."
     comision = leer_decimal(datos.get("comision"))
     sueldo_texto = datos.get("sueldo_acordado")
     sueldo = leer_decimal(sueldo_texto)
@@ -683,6 +600,11 @@ def sumar_meses(fecha, meses):
     return date(anio, mes, min(fecha.day, dias_mes))
 
 
+def vencimiento_garantia(inicio, c):
+    """Vencimiento por los meses acordados; None cuando no hay garantía."""
+    return sumar_meses(inicio, meses_de_garantia(c)) if con_garantia(c) else None
+
+
 def inicio_por_firma(c):
     """Datos de inicio que produce un contrato firmado: el trabajo y la garantía
     corren desde la fecha del contrato. None si no corresponde iniciar."""
@@ -721,6 +643,8 @@ def situacion_garantia(c, reemplazos_atendidos):
     """Texto de la garantía de un enlace y si está pendiente."""
     if not con_garantia(c):
         return "Sin garantía", False
+    if c["estado"] == "Cancelada":                 # deshecha cuando ya tenía un reemplazo: no llegó a cumplirse
+        return "Cancelada", False
     if c["estado"] == "Reemplazo solicitado":
         if str(c["id"]) in reemplazos_atendidos:
             return "Reemplazada", False
@@ -733,6 +657,13 @@ def situacion_garantia(c, reemplazos_atendidos):
         if dias >= 0:
             return ("Vence hoy" if dias == 0 else f"Quedan {dias} día{'' if dias == 1 else 's'}"), True
     return "Cumplida", False
+
+
+def tamano_firma(nombre, ancho=200):
+    """Puntos de una firma con nombre. Cada recuadro de firma del contrato mide unos 80 mm (226 pt): el nombre ocupa
+    como mucho 200 pt aun con la letra manuscrita más ancha (Segoe Script, la de Windows, ~0.6 em por letra), entre
+    16 y 9 pt. Un nombre que no quepa ni a 9 pt pasa a un segundo renglón en vez de salirse de la hoja."""
+    return max(9, min(16, int(ancho / (0.6 * max(len(nombre), 1)))))
 
 
 def html_firma(dato):
@@ -748,8 +679,7 @@ def html_firma(dato):
         if not isinstance(nombre, str) or not nombre.strip():
             return ""
         nombre = nombre.strip()
-        tamano = 26 if len(nombre) <= 18 else 23 if len(nombre) <= 25 else 20 if len(nombre) <= 33 else 17
-        return (f'<span class="nombre-firma" style="font-size:{tamano}pt">'
+        return (f'<span class="nombre-firma" style="font-size:{tamano_firma(nombre)}pt">'
                 f'{html.escape(nombre)}</span>')
     ancho, alto = firma.get("w"), firma.get("h")
     if (type(ancho) not in (int, float) or type(alto) not in (int, float)
@@ -768,16 +698,83 @@ def html_firma(dato):
             f'stroke-linecap="round" stroke-linejoin="round">{trazos}</g></svg>')
 
 
+def ajustar_firmas(documento):
+    """Un contrato firmado se muestra tal como se guardó, salvo el tamaño de sus firmas con nombre: hasta la 1.7.2
+    eran mucho más grandes y no podían pasar a otro renglón, así que un nombre largo se salía de la hoja. Solo cambia
+    la presentación (el documento guardado no se toca); en un contrato firmado con esta versión no cambia nada."""
+    # Los contratos que Servitotal firmó antes tienen tres firmas por renglón (EMPRESA, EMPLEADOR y PERSONA),
+    # en recuadros de unos 133 pt: el nombre ocupa como mucho 120 pt.
+    ancho = 120 if '<div class="linea">PERSONA</div>' in documento else 200
+    documento = re.sub(r'<span class="nombre-firma" style="font-size:\d+pt">([^<]*)</span>',
+                       lambda m: (f'<span class="nombre-firma" style="font-size:{tamano_firma(html.unescape(m[1]), ancho)}pt">'
+                                  f'{m[1]}</span>'), documento)
+    return (documento.replace("line-height: 1.1; white-space: nowrap; }", "line-height: 1.1; }")
+            .replace(".firma { flex: 1; text-align: center; }", ".firma { flex: 1; min-width: 0; text-align: center; }"))
+
+
 # ---------------------------------------------------------------- Base de datos
 # Datos del cliente que el programa maneja solo y no se piden en el formulario: el estado del pedido lo cambia
 # el propio flujo (pendiente, en entrevista, colocado...) y los meses de garantía se acuerdan en el contrato.
-CAMPOS_OCULTOS_CLIENTE = [("estado", "estado"), ("meses_garantia", "meses_garantia"), ("dias_garantia", "dias_garantia")]
+# «¿Para cuándo la necesita?» y las notas ya no se piden, pero lo escrito antes se conserva (y sale en las copias
+# .csv). El orden es el de siempre, para que una base nueva tenga las mismas columnas que las anteriores.
+CAMPOS_OCULTOS_CLIENTE = [("fecha_necesita", "fecha_necesita"), ("notas", "notas"),
+                          ("estado", "estado"), ("meses_garantia", "meses_garantia"),
+                          ("dias_garantia", "dias_garantia")]   # Servitotal guardaba la garantía en días
+# Lo mismo con la trabajadora: su estado lo dan sus asignaciones y sus notas escritas antes se conservan.
+CAMPOS_OCULTOS_TRABAJADORA = [("estado", "estado"), ("notas", "notas"),
+                              # lo que Servitotal pedía antes en la ficha: se conserva aunque ya no se muestre
+                              ("sueldo_esperado", "sueldo_esperado"), ("entrevista_fecha", "entrevista_fecha"),
+                              ("entrevista_resultado", "entrevista_resultado"), ("entrevista_notas", "entrevista_notas")]
 
 TABLAS = {
     "clientes": CAMPOS_CLIENTE + CAMPOS_OCULTOS_CLIENTE,
-    "trabajadoras": CAMPOS_TRABAJADORA,
-    "colocaciones": CAMPOS_COLOCACION,
+    "trabajadoras": CAMPOS_TRABAJADORA + CAMPOS_OCULTOS_TRABAJADORA,
+    "colocaciones": CAMPOS_COLOCACION + [("dias_garantia", "dias_garantia")],   # garantía en días de Servitotal
 }
+
+
+def _garantias_pendientes(con):
+    """True si quedan garantías de Servitotal guardadas en días que todavía no pasaron a meses."""
+    for tabla, necesarias, condicion in (
+            ("colocaciones", {"dias_garantia", "meses_garantia", "garantia"},
+             "COALESCE(garantia, '') <> 'No' AND (meses_garantia IS NULL OR meses_garantia IN ('', '0'))"),
+            ("clientes", {"dias_garantia", "meses_garantia"}, "(meses_garantia IS NULL OR meses_garantia = '')")):
+        columnas = {fila[1] for fila in con.execute(f"PRAGMA table_info({tabla})")}
+        if necesarias <= columnas and con.execute(
+                f"SELECT 1 FROM {tabla} WHERE CAST(dias_garantia AS INTEGER) > 0 AND {condicion} LIMIT 1").fetchone():
+            return True
+    return False
+
+
+def _garantias_en_meses(con, antes):
+    """Servitotal guardaba la garantía en días (30 por defecto); el programa la maneja en meses, como Servicio
+    Exclusivo. Se convierte una sola vez, redondeando hacia arriba (30 días = 1 mes), solo donde falta el dato en meses:
+    la fecha de fin de una garantía ya iniciada y los contratos firmados no se tocan, y los días quedan guardados."""
+    primera_conversion = _garantias_pendientes(con)
+    if "garantia" in antes["colocaciones"] and "meses_garantia" not in antes["colocaciones"]:
+        # Base de la primera versión de Servitotal: garantía Sí/No de 30 días y la fecha del contrato en la firma.
+        con.execute("UPDATE colocaciones SET meses_garantia = CASE WHEN garantia = 'No' THEN '0' ELSE '1' END "
+                    "WHERE meses_garantia IS NULL OR meses_garantia = ''")
+        con.execute("UPDATE colocaciones SET fecha_contrato = substr(fecha_firma, 1, 10) WHERE contrato_firmado = '1' "
+                    "AND (fecha_contrato IS NULL OR fecha_contrato = '') AND COALESCE(fecha_firma, '') <> ''")
+    if "garantia" in antes["clientes"] and "meses_garantia" not in antes["clientes"]:
+        for id_, garantia in con.execute("SELECT id, garantia FROM clientes WHERE meses_garantia IS NULL "
+                                         "OR meses_garantia = ''").fetchall():
+            con.execute("UPDATE clientes SET meses_garantia = ? WHERE id = ?",
+                        (texto_meses(0 if garantia == "No" else 1), id_))
+    con.execute("UPDATE colocaciones SET meses_garantia = CAST((CAST(dias_garantia AS INTEGER) + 29) / 30 AS TEXT) "
+                "WHERE CAST(dias_garantia AS INTEGER) > 0 AND COALESCE(garantia, '') <> 'No' "
+                "AND (meses_garantia IS NULL OR meses_garantia IN ('', '0'))")
+    for id_, meses in con.execute("SELECT id, (CAST(dias_garantia AS INTEGER) + 29) / 30 FROM clientes "
+                                  "WHERE CAST(dias_garantia AS INTEGER) > 0 "
+                                  "AND (meses_garantia IS NULL OR meses_garantia = '')").fetchall():
+        con.execute("UPDATE clientes SET meses_garantia = ? WHERE id = ?", (texto_meses(meses), id_))
+    if primera_conversion:
+        # Servitotal proponía 30 días a los clientes sin plazo escrito: siguen con un mes (y no con los 2 por defecto).
+        sin_no = " AND COALESCE(garantia, '') <> 'No'" if "garantia" in {
+            fila[1] for fila in con.execute("PRAGMA table_info(clientes)")} else ""
+        con.execute("UPDATE clientes SET meses_garantia = ? WHERE (meses_garantia IS NULL OR meses_garantia = '') "
+                    "AND (dias_garantia IS NULL OR dias_garantia = '')" + sin_no, (texto_meses(1),))
 
 
 class BaseDatos:
@@ -811,8 +808,7 @@ class BaseDatos:
         Todo en una sola transacción: o se aplica entero o no se toca nada."""
         self.con.execute("BEGIN IMMEDIATE")  # reservar escritura antes de leer el esquema evita upgrade BUSY
         try:
-            anteriores = {tabla: {r["name"] for r in self.con.execute(f"PRAGMA table_info({tabla})")}
-                          for tabla in TABLAS}
+            antes = {tabla: {r["name"] for r in self.con.execute(f"PRAGMA table_info({tabla})")} for tabla in TABLAS}
             for tabla, campos in TABLAS.items():
                 self.con.execute(f"CREATE TABLE IF NOT EXISTS {tabla} "
                                  "(id INTEGER PRIMARY KEY AUTOINCREMENT)")
@@ -826,20 +822,14 @@ class BaseDatos:
             if area_nueva:    # solo la primera vez: si la agencia elimina áreas, no se vuelven a crear
                 self.con.executemany("INSERT INTO areas (nombre, titulo, descripcion) VALUES (?, ?, ?)",
                                      [(nombre, titulo, descripcion) for nombre, (titulo, descripcion) in AREAS_INICIALES.items()])
-            # Identifica el esquema Servitotal antiguo antes de añadir columnas.
-            # Sus acuerdos eran 30 días, incluso cuando todavía no se había registrado el inicio.
-            for tabla in ("clientes", "colocaciones"):
-                if "garantia" in anteriores[tabla] and "meses_garantia" not in anteriores[tabla]:
-                    self.con.execute(f"UPDATE {tabla} SET dias_garantia = CASE WHEN garantia = 'No' THEN '0' ELSE ? END "
-                                     "WHERE dias_garantia IS NULL OR dias_garantia = ''", (str(DIAS_GARANTIA),))
-            if "meses_garantia" not in anteriores["colocaciones"]:
-                self.con.execute("UPDATE colocaciones SET fecha_contrato = substr(fecha_firma, 1, 10) "
-                                 "WHERE contrato_firmado = '1' AND length(fecha_firma) >= 10 AND fecha_contrato = ''")
-            if "garantia" in anteriores["clientes"]:
-                self.con.execute("UPDATE clientes SET meses_garantia = 'Sin garantía' "
-                                 "WHERE garantia = 'No' AND (meses_garantia IS NULL OR meses_garantia = '')")
-            # Conserva lo que acompañaba a las firmas al actualizar una versión antigua.
-            # Las posteriores ediciones de fichas o comisiones no reescriben ese documento.
+            _garantias_en_meses(self.con, antes)
+            if "garantia" in {r["name"] for r in self.con.execute("PRAGMA table_info(clientes)")}:
+                # clientes de versiones anteriores: su Sí/No de garantía pasa a meses (el dato viejo no se toca)
+                self.con.execute("UPDATE clientes SET meses_garantia = CASE WHEN garantia = 'No' THEN ? ELSE ? END "
+                                 "WHERE meses_garantia IS NULL OR meses_garantia = ''",
+                                 (texto_meses(0), texto_meses(MESES_GARANTIA)))
+            # Congela los contratos firmados heredados con las fichas todavía disponibles.
+            # Un contrato con personas ausentes conserva sus datos sin inventar un documento.
             self.con.execute("CREATE INDEX IF NOT EXISTS idx_colocaciones_firma_sin_html ON colocaciones(id) "
                              "WHERE contrato_firmado = '1' AND (contrato_html IS NULL OR contrato_html = '')")
             firmados = self.con.execute("SELECT * FROM colocaciones WHERE contrato_firmado = '1' "
@@ -913,7 +903,7 @@ class BaseDatos:
             if resguardo is not None:
                 resguardo.close()
             if temporal is not None and not conservar_resguardo:
-                shutil.rmtree(temporal, ignore_errors=True)   # un antivirus puede retener el temporal un momento
+                shutil.rmtree(temporal, ignore_errors=True)   # en Windows un antivirus puede retenerlo un momento
         self._version_externa = self._leer_version_externa()
         self._olvidar_memoria()
         self._cambio_desconocido()
@@ -1157,32 +1147,32 @@ FAMILIA = "Segoe UI" if ES_WINDOWS else "Avenir Next" if sys.platform == "darwin
 BASE = 10 if ES_WINDOWS else 12
 PAD = "  "  # sangría de las celdas de las tablas
 
-# Tema oscuro de Servitotal: conserva el fucsia de los botones y del logo,
-# con rosas claros para texto y superficies oscuras con matiz lavanda.
-C = {
-    'fondo': '#17131A',
-    'lateral': '#201823',
-    'suave': '#211B25',
-    'hover': '#352438',
-    'activo': '#2D2231',
-    'borde': '#503C55',
-    'barra': '#705A77',
-    'texto': '#F7F0F6',
-    'texto2': '#DDCDDE',
-    'tenue': '#BDAABD',
-    'acento': '#F58DBD',
-    'acento_osc': '#F8D6E7',
-    'acento_suave': '#482239',
-    'rojo': '#E0197D',
-    'rojo_osc': '#B8135F',
-    'peligro': '#F595A9',
-    'peligro_suave': '#46242D',
-    'alerta': '#3D2F23',
-    'campo': '#2B222F',
-    'tabla_alt': '#211B25',
-    'azul_marca': '#C2156B',
-    'azul_hover': '#99104F',
-    'logo_fondo': '#2D2231',
+# Superficies oscuras con una jerarquía clara. El logo y los acentos azul/rojo
+# conservan los colores de la agencia.
+C = {   # tema oscuro de Servitotal con detalles rosa y fucsia
+    "fondo": "#17131A",        # paneles elevados, tarjetas y ventanas
+    "lateral": "#201823",      # navegación y zona de marca
+    "suave": "#211B25",        # lienzo de las páginas
+    "campo": "#2B222F",        # entradas y listas desplegables
+    "hover": "#352438",
+    "activo": "#2D2231",
+    "borde": "#503C55",
+    "barra": "#705A77",
+    "tabla_alt": "#211B25",
+    "texto": "#F7F0F6",
+    "texto2": "#DDCDDE",
+    "tenue": "#BDAABD",
+    "acento": "#F58DBD",       # rosa claro legible sobre fondos oscuros
+    "acento_osc": "#F8D6E7",
+    "acento_suave": "#482239",
+    "azul_marca": "#C2156B",   # fucsia de los botones principales
+    "azul_hover": "#99104F",
+    "logo_fondo": "#2D2231",   # fondo del logo de Servitotal
+    "rojo": "#E0197D",
+    "rojo_osc": "#B8135F",
+    "peligro": "#F595A9",
+    "peligro_suave": "#46242D",
+    "alerta": "#3D2F23",
 }
 
 F = {
@@ -1200,18 +1190,18 @@ F = {
 
 
 def aplicar_tema(root):
-    for nombre in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
-        try:
-            tkfont.nametofont(nombre).configure(family=FAMILIA, size=BASE)
-        except tk.TclError:
-            pass
-    root.configure(bg=C["fondo"])
     # Controles clásicos, incluidos los menús de Tk, siguen el tema oscuro.
     root.option_add("*background", C["fondo"])
     root.option_add("*foreground", C["texto"])
     root.option_add("*Menu.activeBackground", C["acento_suave"])
     root.option_add("*Menu.activeForeground", C["texto"])
     root.option_add("*Menu.disabledForeground", C["tenue"])
+    for nombre in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
+        try:
+            tkfont.nametofont(nombre).configure(family=FAMILIA, size=BASE)
+        except tk.TclError:
+            pass
+    root.configure(bg=C["fondo"])
     root.option_add("*TCombobox*Listbox.background", C["campo"])
     root.option_add("*TCombobox*Listbox.foreground", C["texto"])
     root.option_add("*TCombobox*Listbox.selectBackground", C["acento_suave"])
@@ -1388,41 +1378,74 @@ def partir_etiqueta(texto):
     return texto, ""
 
 
-def centrar(ventana, ancho, alto, sobre=None):
-    """Tamaño y posición de una ventana. Las medidas están pensadas para pantallas al 100 %: en una laptop con la
-    escala de Windows al 125-175 % la letra crece, así que un diálogo se agranda en la misma proporción y, cuando ya
-    está construido, lo necesario para que su contenido (y sus botones) quepa entero."""
-    if sobre is not None:
-        escala = max(1.0, ventana.winfo_fpixels("1i") / 96)
-        ancho, alto = int(ancho * escala), int(alto * escala)
-        ventana.after_idle(lambda: _agrandar_para_el_contenido(ventana, sobre))
-    ancho = min(ancho, ventana.winfo_screenwidth() - 40)
-    alto = min(alto, ventana.winfo_screenheight() - 80)
-    if sobre is not None:
-        x = sobre.winfo_rootx() + (sobre.winfo_width() - ancho) // 2
-        y = sobre.winfo_rooty() + (sobre.winfo_height() - alto) // 3
-    else:
-        x = (ventana.winfo_screenwidth() - ancho) // 2
-        y = (ventana.winfo_screenheight() - alto) // 3
-    ventana.geometry(f"{ancho}x{alto}+{max(x, 0)}+{max(y, 0)}")
-    ventana._tamano_pedido = (ancho, alto, max(x, 0), max(y, 0))
+def escala_pantalla(widget):
+    """Escala de pantalla de Windows: 1.25 con «125 %», 1.5 con «150 %»... (1 en Mac y Linux).
+
+    El programa pide a Windows texto nítido (SetProcessDpiAwareness), así que las letras crecen con la escala
+    de la pantalla; los tamaños fijos de las ventanas, pensados para 96 ppp, se multiplican por este factor
+    para que el contenido y sus botones sigan cabiendo."""
+    if not ES_WINDOWS:
+        return 1.0
+    try:
+        return max(1.0, float(widget.winfo_fpixels("1i")) / 96.0)
+    except (tk.TclError, ValueError):
+        return 1.0
 
 
-def _agrandar_para_el_contenido(ventana, sobre):
+def area_de_trabajo(widget):
+    """(x, y, ancho, alto) de la pantalla sin la barra de tareas de Windows (en Mac y Linux, la pantalla entera)."""
+    if ES_WINDOWS:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):   # SPI_GETWORKAREA
+                if rect.right > rect.left and rect.bottom > rect.top:
+                    return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+        except Exception:
+            pass
+    return 0, 0, widget.winfo_screenwidth(), widget.winfo_screenheight()
+
+
+def _marco_de_ventana(widget):
+    """Alto aproximado de la barra de título y los bordes que Windows agrega a una ventana."""
+    return round(40 * escala_pantalla(widget))
+
+
+def _crecer_si_falta(ventana, ancho, alto):
+    """Si el contenido de una ventana pide más espacio que el previsto, se agranda (sin salir del área visible)."""
     try:
         if not ventana.winfo_exists():
             return
         ventana.update_idletasks()
-        ancho0, alto0, x, y = ventana._tamano_pedido          # el tamaño asignado: sólo se agranda, nunca se achica
-        ancho = min(max(ancho0, ventana.winfo_reqwidth()), ventana.winfo_screenwidth() - 40)
-        alto = min(max(alto0, ventana.winfo_reqheight()), ventana.winfo_screenheight() - 80)
-        if (ancho, alto) == (ancho0, alto0):
-            return
-        x = max(0, min(x, ventana.winfo_screenwidth() - ancho))
-        y = max(0, min(y, ventana.winfo_screenheight() - alto - 40))
-        ventana.geometry(f"{ancho}x{alto}+{x}+{y}")
+        _, _, ancho_util, alto_util = area_de_trabajo(ventana)
+        nuevo_ancho = min(max(ancho, ventana.winfo_reqwidth()), ancho_util)
+        nuevo_alto = min(max(alto, ventana.winfo_reqheight()), alto_util - _marco_de_ventana(ventana))
+        if (nuevo_ancho, nuevo_alto) != (ancho, alto):
+            ventana.geometry(f"{nuevo_ancho}x{nuevo_alto}")
     except tk.TclError:
         pass
+
+
+def centrar(ventana, ancho, alto, sobre=None):
+    """Tamaño (escalado con la pantalla) y posición centrada, siempre dentro del área visible: en Windows no se
+    mete debajo de la barra de tareas, donde quedarían ocultos los botones de abajo."""
+    factor = escala_pantalla(ventana)
+    x0, y0, ancho_util, alto_util = area_de_trabajo(ventana)
+    marco = _marco_de_ventana(ventana)
+    ancho = min(round(ancho * factor), ancho_util)
+    alto = min(round(alto * factor), alto_util - marco)
+    if ES_WINDOWS and isinstance(ventana, tk.Toplevel):
+        ventana.after_idle(lambda: _crecer_si_falta(ventana, ancho, alto))
+    if sobre is not None:
+        x = sobre.winfo_rootx() + (sobre.winfo_width() - ancho) // 2
+        y = sobre.winfo_rooty() + (sobre.winfo_height() - alto) // 3
+    else:
+        x = x0 + (ancho_util - ancho) // 2
+        y = y0 + (alto_util - alto) // 3
+    x = min(max(x, x0), x0 + ancho_util - ancho)
+    y = min(max(y, y0), y0 + alto_util - alto - marco)
+    ventana.geometry(f"{ancho}x{alto}+{max(x, 0)}+{max(y, 0)}")
 
 
 def pedir_texto(parent, titulo, pregunta, valor_inicial=""):
@@ -1435,13 +1458,13 @@ def pedir_texto(parent, titulo, pregunta, valor_inicial=""):
     centrar(ventana, 480, 230, parent.winfo_toplevel())
     contenido = ttk.Frame(ventana, padding=(26, 24, 26, 22))
     contenido.pack(fill="both", expand=True)
-    ttk.Label(contenido, text=pregunta, wraplength=int(420 * max(1.0, ventana.winfo_fpixels("1i") / 96)),
-              justify="left").pack(anchor="w")
+    etiqueta = ttk.Label(contenido, text=pregunta, wraplength=round(420 * escala_pantalla(ventana)), justify="left")
+    etiqueta.pack(anchor="w")
     valor = tk.StringVar(value=valor_inicial or "")
     entrada = ttk.Entry(contenido, textvariable=valor)
     entrada.pack(fill="x", pady=(16, 0))
     botones = ttk.Frame(contenido)
-    botones.pack(side="bottom", fill="x")
+    botones.pack(side="bottom", fill="x", before=etiqueta)   # los botones se reservan primero: nunca quedan cortados
     resultado = [None]
 
     def aceptar(_evento=None):
@@ -2071,8 +2094,8 @@ class Pagina(ttk.Frame):
         self.app, self.db = app, app.db
         self.id_actual = None
         self._cambiando = False   # evita guardar dos veces lo mismo cuando cambia la selección
+        self._datos_cargados = {}
         self.borrador = None      # lo escrito en un registro nuevo al que aún le faltan datos obligatorios
-        self._datos_cargados = {}  # instantánea del formulario; cambios del sistema no son ediciones
         self._lista_fuente = None
         self._lista_indice = ()
         self._lista_render_fuente = None
@@ -2211,11 +2234,25 @@ class Pagina(ttk.Frame):
         return ("0" if valor == "" else valor) if self.form.tipos[clave] == "check" else valor
 
     def resolver_cambios(self):
-        """Guarda ediciones reales; conserva el formulario si hay un conflicto."""
+        """Guarda ediciones reales; conserva el formulario si hay un conflicto. Si un dato de una ficha ya guardada no
+        es válido, dice cuál y ofrece volver a lo guardado (sin eso, ni la X cerraba el programa)."""
         if self.cambios_sin_guardar() and not self.guardar(silencioso=True):
             if self.id_actual is None:
                 if self.guardar_borrador() is False:
                     return False
+            elif getattr(self, "_error_al_guardar", None):
+                if not messagebox.askyesno(
+                        "Cambios sin guardar", f"No se pudo guardar el cambio: {self._error_al_guardar}\n\n"
+                        "¿Descartarlo y volver a lo que estaba guardado? Elija «No» para corregirlo.",
+                        default="no", parent=self):
+                    return False
+                guardado = self.db.uno(self.tabla, self.id_actual)
+                if guardado is None:
+                    self.nuevo()
+                else:
+                    self.form.poner(guardado)
+                    self._datos_cargados = self.form.obtener()
+                    self.cabecera(guardado)
             else:
                 self.mostrar_aviso("Revise los cambios pendientes antes de salir")
                 return False
@@ -2482,6 +2519,7 @@ class Pagina(ttk.Frame):
     def guardar(self, silencioso=False):
         """Actualiza campos editados y detecta conflictos dentro de la transacción."""
         escritos = self.form.obtener()
+        self._error_al_guardar = None
         self.db.cambio_externo()
         try:
             if self.id_actual is None:
@@ -2524,6 +2562,8 @@ class Pagina(ttk.Frame):
         except AccionRechazada as error:
             if error.titulo != "Revise los datos" or not silencioso:
                 messagebox.showwarning(error.titulo, str(error), parent=self)
+            else:
+                self._error_al_guardar = str(error)      # se explica al salir de la ficha (resolver_cambios)
             return False
         guardado = self.db.uno(self.tabla, self.id_actual)
         self.form.poner(guardado)
@@ -2589,13 +2629,20 @@ class PaginaClientes(Pagina):
 
     def valores_fila(self, fila):
         valores = super().valores_fila(fila)
-        valores[4] = dinero_corto(fila["sueldo_ofrecido"])
+        valores[4] = dinero_corto(normalizar_sueldo(fila["sueldo_ofrecido"]))
         return [v if v else "-" for v in valores]
     numericos = ["sueldo_ofrecido"]
     fechas = ["fecha_registro"]
 
     def valores_defecto(self):
         return {"fecha_registro": hoy(), "estado": "Pendiente"}
+
+    def validar_extra(self, datos):
+        sueldo = normalizar_sueldo(datos.get("sueldo_ofrecido"))
+        if sueldo != (datos.get("sueldo_ofrecido") or ""):       # «1.500» se guarda como 1500
+            datos["sueldo_ofrecido"] = sueldo
+            self.form.poner_valor("sueldo_ofrecido", sueldo)
+        return super().validar_extra(datos)
 
     def guardar(self, silencioso=False):
         if self.id_actual is None:
@@ -2606,18 +2653,6 @@ class PaginaClientes(Pagina):
 
 
 class PaginaTrabajadoras(Pagina):
-    def validar_extra(self, datos):
-        error = super().validar_extra(datos)
-        if error or self.id_actual is None:
-            return error
-        enlaces = self.app._vinculos_ocupantes("trabajadoras", self.id_actual)
-        if enlaces:
-            esperado = "Trabajando" if any(e in ("Activa", "Garantía cumplida") for e in enlaces.values()) else "En proceso"
-            if datos.get("estado") != esperado:
-                return (f"La trabajadora tiene una asignación pendiente o en curso y su estado debe ser «{esperado}». "
-                        "Registre el inicio, solicite reemplazo o deshaga el vínculo antes de cambiar su disponibilidad.")
-        return None
-
     tabla = "trabajadoras"
     nombre_singular = "Trabajadora"
     titulo_pagina = "Trabajadoras"
@@ -2632,19 +2667,16 @@ class PaginaTrabajadoras(Pagina):
     campos = CAMPOS_TRABAJADORA
     columnas = [("nombre", "Nombre", 200), ("telefono", "Teléfono", 120), ("zona", "Zona", 130),
                 ("tipo_servicio", "Especialidad", 150),
-                ("docs", "Documentos", 110), ("estado", "Estado", 120),
-                ("sueldo_esperado", "Pide", 95), ("entrevista_resultado", "Entrevista", 110)]
-    numericos = ["edad", "experiencia", "sueldo_esperado"]
-    fechas = ["entrevista_fecha"]
+                ("docs", "Documentos", 110), ("estado", "Estado", 120)]
+    numericos = ["edad", "experiencia"]
 
     def valores_fila(self, fila):
         valores = super().valores_fila(fila)
         valores[4] = f"{len(docs_presentados(fila))}/{len(DOCUMENTOS)}"
-        valores[6] = dinero_corto(fila["sueldo_esperado"])
         return [v if v else "-" for v in valores]
 
     def valores_defecto(self):
-        return {"estado": "Disponible", "entrevista_resultado": "Pendiente"}
+        return {"estado": "Disponible"}
 
     campo_enlace = "trabajadora_id"
 
@@ -2663,8 +2695,6 @@ class PaginaEnlazar(ttk.Frame):
         cab.pack(fill="x")
         self.lbl_titulo = encabezado(cab, "Áreas", "",
                                      volver=lambda: app.mostrar(app.areas))
-        ttk.Button(cab, text="Ver asignaciones", style="Pequeno.TButton",
-                   command=app.abrir_asignaciones).pack(side="right")
         divisor(self).pack(fill="x")
 
         v = ttk.Frame(self, style="Fondo.TFrame")
@@ -2794,7 +2824,7 @@ class PaginaEnlazar(ttk.Frame):
                 if (pendiente and del_area) or i == str(cliente_id):
                     nombre = c["nombre"] + ("   · reemplazo" if self.app.reemplazo_pendiente(i) else "")
                     entradas.append((i, [PAD + str(x) for x in (
-                        nombre, c["zona"] or "-", dinero_corto(c["sueldo_ofrecido"]))], ()))
+                        nombre, c["zona"] or "-", dinero_corto(normalizar_sueldo(c["sueldo_ofrecido"])))], ()))
             if not hasattr(self, "_pedidos_estado"):
                 self._pedidos_estado = {}
             Pagina._sincronizar_tabla(self.t_clientes, self._pedidos_estado, entradas, self.clientes.keys())
@@ -2862,9 +2892,6 @@ class PaginaEnlazar(ttk.Frame):
             perfil = (f"{t['zona'] or 'Zona sin registrar'}  ·  "
                       f"{t['tipo_servicio'] or 'Especialidad sin registrar'}  ·  "
                       f"Documentos {len(docs_presentados(t))}/{len(DOCUMENTOS)}")
-            if cli:
-                afinidad = coincidencias(cli, t)
-                perfil += "  ·  Coincide en: " + (", ".join(afinidad) if afinidad else "revise el perfil")
             self.detalle_trab.configure(text=perfil)
         else:
             self.detalle_trab.configure(text="Seleccione una trabajadora para revisar su perfil.")
@@ -2876,25 +2903,23 @@ class PaginaEnlazar(ttk.Frame):
             messagebox.showwarning("Asignar", "Elija un cliente y una trabajadora.", parent=self)
             return
         nuevo = {clave: "" for clave in claves(CAMPOS_COLOCACION)}
-        cantidad, unidad = plazo_del_cliente(cli)
-        meses = cantidad if unidad == "meses" else 0
-        dias = cantidad if unidad == "días" else 0
+        meses = meses_del_cliente(cli)
+        sueldo = normalizar_sueldo(cli["sueldo_ofrecido"])
         nuevo.update(cliente_id=str(cli["id"]), trabajadora_id=str(t["id"]), fecha_enlace=hoy(),
-                     estado="En proceso", sueldo_acordado=cli["sueldo_ofrecido"],
-                     comision=monto_por_porcentaje(PORCENTAJE_DEFECTO, cli["sueldo_ofrecido"]) or COBRO_DEFECTO,
-                     garantia="Sí" if cantidad else "No", meses_garantia=str(meses), dias_garantia=str(dias))
+                     estado="En proceso", sueldo_acordado=sueldo,
+                     comision=monto_por_porcentaje(PORCENTAJE_DEFECTO, sueldo) or COBRO_DEFECTO,
+                     garantia="Sí" if meses else "No", meses_garantia=str(meses))
         anterior = self.app.reemplazo_pendiente(cli["id"])
         if anterior:  # cambio dentro de la garantía: sin costo y con la misma garantía
             nuevo.update(comision="0.00", reemplazo_de=str(anterior["id"]), garantia="Sí",
-                         meses_garantia=str(plazo_garantia(anterior)[0] if plazo_garantia(anterior)[1] == "meses" else 0),
-                         dias_garantia=str(plazo_garantia(anterior)[0] if plazo_garantia(anterior)[1] == "días" else 0),
+                         meses_garantia=str(meses_de_garantia(anterior) or MESES_GARANTIA),
                          notas=f"Reemplazo sin costo de la asignación N° {anterior['id']}.")
 
         def confirmar(datos):
             revisados = dict(datos)
             ocupacion = revisados.pop("ocupacion")
             registro = dict(nuevo, **revisados)
-            normalizar_plazo(registro)
+            registro["garantia"] = "Sí" if int(revisados["meses_garantia"]) else "No"
             registro.update(fecha_enlace=hoy(), porcentaje=porcentaje_de(revisados["comision"], revisados["sueldo_acordado"]))
             try:
                 numero = self.app.crear_asignacion(registro, ocupacion, reemplazo_esperado=anterior)
@@ -2903,10 +2928,12 @@ class PaginaEnlazar(ttk.Frame):
                 self.app.refrescar_todo()
                 return False
             self.app.refrescar_todo()
-            self.after_idle(lambda: self.app.abrir_asignaciones(numero))
+            self.after_idle(lambda: self.app.abrir_contratos(numero))
             return True
 
         valores = dict(datos_contrato(nuevo, cli), ocupacion=cli.get("ocupacion") or "")
+        if not nuevo["comision"]:          # sin comisión propuesta: se escribe en cada contrato
+            valores.update(comision="", porcentaje="")
         DialogoContrato(self, None, valores, confirmar, nombres=(cli["nombre"], t["nombre"]))
 
 
@@ -2952,7 +2979,7 @@ class PanelFirma(ttk.Frame):
         if familia == "Times New Roman":
             opciones["slant"] = "italic"
         self.fuente_nombre = tkfont.Font(root=self, **opciones)
-        while self.fuente_nombre.measure(self.nombre) > self.ANCHO - 30 and self.fuente_nombre.cget("size") > 13:
+        while self.fuente_nombre.measure(self.nombre) > self.ANCHO - 30 and self.fuente_nombre.cget("size") > 9:
             self.fuente_nombre.configure(size=self.fuente_nombre.cget("size") - 1)
         self.lienzo.create_text(self.ANCHO / 2, self.ALTO / 2, text=self.nombre,
                                 fill=C["texto"], font=self.fuente_nombre, tags="firma")
@@ -3006,12 +3033,12 @@ class DialogoFirmas(tk.Toplevel):
         self.paneles = {
             "firma_cliente": PanelFirma(fila, "EL EMPLEADOR", cliente.get("nombre", "")),
             "firma_trabajadora": PanelFirma(fila, "LA TRABAJADORA", trabajadora.get("nombre", "")),
-            "firma_agencia": PanelFirma(fila, "LA AGENCIA", AGENCIA_REPRESENTANTE),
+            "firma_agencia": PanelFirma(fila, "LA AGENCIA", AGENCIA_NOMBRE),
         }
         for panel in self.paneles.values():
             panel.pack(side="left", expand=True)
         botones = ttk.Frame(cont)
-        botones.pack(side="bottom", fill="x")
+        botones.pack(side="bottom", fill="x", before=fila)   # si falta espacio se achican los recuadros, no los botones
         ttk.Button(botones, text="Guardar firmas", style="Primario.TButton",
                    command=self.guardar).pack(side="right")
         ttk.Button(botones, text="Cancelar", style="Secundario.TButton",
@@ -3027,7 +3054,60 @@ class DialogoFirmas(tk.Toplevel):
             self.destroy()
 
 
-MESES_NOMBRE = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+class DialogoImprimir(tk.Toplevel):
+    """Elegir cómo se abre el contrato para imprimirlo: en Word o en PDF (que se ve en el navegador)."""
+
+    def __init__(self, master, numero, hay_word=True):
+        super().__init__(master)
+        self.eleccion = None
+        self.title("Imprimir contrato")
+        self.configure(bg=C["fondo"])
+        self.resizable(False, False)
+        self.transient(master.winfo_toplevel())
+        centrar(self, 640, 350, master.winfo_toplevel())
+        cont = ttk.Frame(self, padding=(28, 24, 28, 22))
+        cont.pack(fill="both", expand=True)
+        pie = ttk.Frame(cont)
+        pie.pack(side="bottom", fill="x", pady=(18, 0))          # se reserva primero: nunca queda cortado
+        ttk.Button(pie, text="Cancelar", style="Secundario.TButton", command=self.destroy).pack(side="right")
+        ttk.Label(cont, text=f"Imprimir el contrato N° {numero}", style="Detalle.TLabel").pack(anchor="w")
+        ttk.Label(cont, text="¿Cómo quiere abrirlo para imprimir?", style="Tenue.TLabel").pack(anchor="w", pady=(4, 16))
+        opciones = ttk.Frame(cont)
+        opciones.pack(fill="x")
+        opciones.columnconfigure((0, 1), weight=1, uniform="opciones")
+        self.botones = {}
+        for columna, (clave, texto, pista) in enumerate((
+                ("word", "Word", "Se abre en Microsoft Word. Imprima con Archivo > Imprimir." if hay_word
+                 else "Este equipo no tiene Microsoft Word: use PDF."),
+                ("pdf", "PDF", "Se abre en el navegador. Imprima con el botón de la impresora o con Ctrl+P."))):
+            celda = ttk.Frame(opciones)
+            celda.grid(row=0, column=columna, sticky="new", padx=(0, 10) if columna == 0 else (10, 0))
+            boton = ttk.Button(celda, text=texto, style="Primario.TButton", command=lambda c=clave: self.elegir(c))
+            boton.pack(fill="x")
+            ttk.Label(celda, text=pista, style="Pista.TLabel", justify="left",
+                      wraplength=round(260 * escala_pantalla(self))).pack(anchor="w", pady=(8, 0))
+            self.botones[clave] = boton
+        if not hay_word:
+            self.botones["word"].state(["disabled"])
+        predeterminada = "word" if hay_word else "pdf"
+        self.bind("<Return>", lambda e: self.elegir(predeterminada))
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.grab_set()
+        self.botones[predeterminada].focus_set()
+
+    def elegir(self, clave):
+        self.eleccion = clave
+        self.destroy()
+
+
+def elegir_impresion(master, numero):
+    """Pregunta cómo imprimir el contrato: «word», «pdf» o None si se cancela."""
+    dialogo = DialogoImprimir(master, numero, abre_documentos_word())
+    master.wait_window(dialogo)
+    return dialogo.eleccion
+
+
+MESES_NOMBRE =["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
                 "septiembre", "octubre", "noviembre", "diciembre"]
 MODALIDADES = ("Cama adentro", "Cama afuera", "Por días")
 
@@ -3037,13 +3117,13 @@ def datos_contrato(c, cli):
     si falta, lo que se deduce del pedido del cliente."""
     tipo = cli.get("tipo_servicio") or ""
     modalidad = ", ".join(x for x in (tipo if tipo in MODALIDADES else "", cli.get("horario") or "") if x)
+    sueldo = normalizar_sueldo(c.get("sueldo_acordado"))      # un «1.500» guardado antes se imprime como 1,500.00
     return {
         "fecha_contrato": c.get("fecha_contrato") or c.get("fecha_enlace") or hoy(),
         "comision": c.get("comision") or "0.00",
-        "porcentaje": porcentaje_de(c.get("comision") or "0", c.get("sueldo_acordado") or ""),
-        "meses_garantia": str(plazo_garantia(c)[0] if plazo_garantia(c)[1] == "meses" else 0),
-        "dias_garantia": str(plazo_garantia(c)[0] if plazo_garantia(c)[1] == "días" else 0),
-        "sueldo_acordado": c.get("sueldo_acordado") or "",
+        "porcentaje": porcentaje_de(c.get("comision") or "0", sueldo),
+        "meses_garantia": str(meses_de_garantia(c)),
+        "sueldo_acordado": sueldo,
         "puesto": c.get("puesto") or ("Todo servicio" if tipo in MODALIDADES or not tipo else tipo),
         "modalidad": c.get("modalidad") or modalidad,
         "descanso": c.get("descanso") or cli.get("dias_libres") or "",
@@ -3057,8 +3137,7 @@ class DialogoContrato(tk.Toplevel):
         ("fecha_contrato", "Fecha del contrato (dd/mm/aaaa)"),
         ("porcentaje", "Comisión (% del sueldo mensual)"),               # primero el porcentaje...
         ("comision", f"Pago único a la agencia ({MONEDA})"),             # ...luego el pago único...
-        ("meses_garantia", "Garantía en meses (0 = sin garantía)"),
-        ("dias_garantia", "Garantía en días (0 = usar meses)"),      # ...y después la garantía
+        ("meses_garantia", "Meses de garantía (0 = sin garantía)"),      # ...y después la garantía
         ("ocupacion", "Ocupación del empleador"),
         (SECCION, "Contrato de trabajo"),
         ("sueldo_acordado", f"Sueldo mensual ({MONEDA})"),
@@ -3102,21 +3181,7 @@ class DialogoContrato(tk.Toplevel):
         self.manda = "porcentaje" if nueva_asignacion and PORCENTAJE_DEFECTO else "monto"
         for clave in ("porcentaje", "comision", "sueldo_acordado"):
             self.form.vars[clave].trace_add("write", lambda *_, c=clave: self.sincronizar(c))
-        for clave in ("meses_garantia", "dias_garantia"):
-            self.form.vars[clave].trace_add("write", lambda *_, c=clave: self.sincronizar_plazo(c))
         self.grab_set()
-
-    def sincronizar_plazo(self, cambio):
-        if self._sincronizando:
-            return
-        if leer_numero(self.form.valor(cambio)) is None:
-            return
-        self._sincronizando = True
-        try:
-            otra = "dias_garantia" if cambio == "meses_garantia" else "meses_garantia"
-            self.form.poner_valor(otra, "0")
-        finally:
-            self._sincronizando = False
 
     def sincronizar(self, cambio):
         """Al escribir el porcentaje se calcula el monto; al escribir el monto, el porcentaje; al cambiar el
@@ -3127,7 +3192,7 @@ class DialogoContrato(tk.Toplevel):
             self.manda = "porcentaje" if cambio == "porcentaje" else "monto"
         self._sincronizando = True
         try:
-            sueldo = self.form.valor("sueldo_acordado")
+            sueldo = normalizar_sueldo(self.form.valor("sueldo_acordado"))
             if self.manda == "porcentaje":
                 monto = monto_por_porcentaje(self.form.valor("porcentaje"), sueldo)
                 if monto is not None:
@@ -3139,11 +3204,12 @@ class DialogoContrato(tk.Toplevel):
 
     def guardar(self):
         d = self.form.obtener()
+        d["sueldo_acordado"] = normalizar_sueldo(d["sueldo_acordado"])      # «1.500» es mil quinientos
         error = validar_condiciones_financieras(d)
         if error:
             messagebox.showwarning("Datos del contrato", error, parent=self)
             return False
-        normalizar_plazo(d)
+        d["meses_garantia"] = str(int(d["meses_garantia"] or 0))
         d["comision"] = importe_texto(d["comision"])
         d["porcentaje"] = porcentaje_de(d["comision"], d["sueldo_acordado"])
         if self.al_guardar(d) is not False:
@@ -3152,15 +3218,23 @@ class DialogoContrato(tk.Toplevel):
         return False
 
 
-def html_contrato(c, cli, t, imprimir=False):
-    """Contrato de servicio Servitotal y contrato de trabajo; conserva el ejemplar firmado."""
+# Hasta la 1.7.2 el contrato guardado en «contratos» se imprimía solo al abrirse: cada vez que se volvía a abrir el
+# archivo, o el navegador restauraba o recargaba la pestaña, salía impreso otra vez (y cada clic en «Imprimir» abría
+# otra pestaña que también se imprimía sola). Ahora el contrato nunca se imprime solo: se abre y se imprime una vez.
+_IMPRESION_AUTOMATICA = "<script>window.onload = () => setTimeout(() => window.print(), 400);</script>"
+
+
+def html_contrato(c, cli, t):
+    """Los dos contratos de la agencia, con el mismo formato que en papel:
+    CONTRATO Y GARANTÍA (agencia y empleador) y CONTRATO DE TRABAJO (empleador y trabajadora)."""
     if c.get("contrato_firmado") == "1" and c.get("contrato_html"):
-        documento = c["contrato_html"]
-        if imprimir:
-            documento = documento.replace("</body>", "<script>window.onload = () => setTimeout(() => window.print(), 400);</script></body>")
-        return documento
+        return ajustar_firmas(c["contrato_html"])
     d = datos_contrato(c, cli)
     e = lambda x: html.escape(str(x or ""))
+    agencia = f"“{AGENCIA_NOMBRE_EN_CONTRATO.upper()}”"
+    identificacion = (f"con RUC N° {e(AGENCIA_RUC)} y domicilio fiscal en {e(AGENCIA_DOMICILIO)}" if AGENCIA_RUC else
+                      f"con domicilio en {e(AGENCIA_DOMICILIO)}, representada por {e(AGENCIA_REPRESENTANTE)} "
+                      f"con DNI N° {e(AGENCIA_DNI_REPRESENTANTE)}")
 
     def campo(valor, clase=""):  # dato escrito sobre la línea punteada
         return f'<span class="campo {clase}">{e(valor) or "&nbsp;"}</span>'
@@ -3184,26 +3258,64 @@ def html_contrato(c, cli, t, imprimir=False):
             if c.get("contrato_firmado") == "1" else "")
     numero = f'<div class="numero">Contrato N° {c["id"]}</div>'
 
+    meses = int(d["meses_garantia"])
     monto = dinero(leer_decimal(d["comision"]) or 0)
     if c.get("reemplazo_de") and not leer_numero(d["comision"]):
         monto += f" (cambio de personal sin costo, garantía del contrato N° {e(c['reemplazo_de'])})"
+    equivalencia = ""
     sueldo = leer_numero(d["sueldo_acordado"])
     porcentaje = porcentaje_de(d["comision"], d["sueldo_acordado"])
-    alojamiento = ", así como alojamiento y alimentación" if "adentro" in d["modalidad"].lower() else ""
-    auto = "<script>window.onload = () => setTimeout(() => window.print(), 400);</script>" if imprimir else ""
-
-    equivalencia_texto = ""
     if porcentaje and sueldo and (leer_numero(d["comision"]) or 0) > 0:
-        equivalencia_texto = f"{porcentaje_en_letras(porcentaje)} del sueldo mensual pactado de {dinero(d['sueldo_acordado'])}"
-    hoja1 = renderizar_hoja_servicio(
-        c, cli, t, d,
-        config={"nombre": AGENCIA_NOMBRE_CONTRATO, "direccion": AGENCIA_DIRECCION,
-                "representante": AGENCIA_REPRESENTANTE, "dni": AGENCIA_DNI_REPRESENTANTE, "ciudad": CIUDAD_CONTRATO},
-        monto=monto, sueldo=dinero(d["sueldo_acordado"]),
-        plazo=texto_plazo_garantia(c, letras=True) if con_garantia(c) else "",
-        equivalencia=equivalencia_texto,
-        firmas={clave: html_firma(c.get(clave)) for clave in ("firma_cliente", "firma_trabajadora", "firma_agencia")},
-    )
+        equivalencia = (f", equivalente al {campo(porcentaje_en_letras(porcentaje), 'medio')} del sueldo mensual "
+                        f"pactado de {campo(dinero(d['sueldo_acordado']), 'medio')}")
+    if meses:
+        plazo = f"{numero_en_letras(meses)} ({meses})"
+        garantia = f"con una garantía de {campo(plazo, 'medio')} {'mes' if meses == 1 else 'meses'}"
+        segunda = ("En caso de que LA TRABAJADORA contratada no cumpliera con los requerimientos que "
+                   "“EL EMPLEADOR” solicitó, no se limita el cambio.")
+        octava_fin = "no habrá devolución de dinero y procederemos al reemplazo de personal."
+    else:
+        garantia = "<b>sin garantía</b>, por decisión de “EL EMPLEADOR”"
+        segunda = ("Por haber optado “EL EMPLEADOR” por el servicio sin garantía, LA AGENCIA no está obligada "
+                   "a efectuar cambios del personal contratado.")
+        octava_fin = "no habrá devolución de dinero."
+    alojamiento = ", así como alojamiento y alimentación" if "adentro" in d["modalidad"].lower() else ""
+
+    hoja1 = f"""<section class="hoja">{numero}
+<h1>CONTRATO Y GARANTÍA</h1>
+<p class="intro">Conste por el presente documento privado, el CONTRATO DE SERVICIO Y GARANTÍA que celebran,
+de una parte, la agencia de empleos {e(agencia)}, {identificacion},
+en adelante LA AGENCIA; y de la otra parte, en adelante “EL EMPLEADOR”, bajo las
+condiciones y cláusulas siguientes:</p>
+{fila(("etiqueta", "SR(A)"), ("campo", cli.get("nombre"), "largo"),
+      ("etiqueta", "Identificado con DNI N°"), ("campo", cli.get("dni"), "dni"))}
+{fila(("etiqueta", "Domiciliado(a)"), ("campo", domicilio(cli), "largo"))}
+{fila(("etiqueta", "Ocupación"), ("campo", cli.get("ocupacion"), "largo"),
+      ("etiqueta", "Cel.:"), ("campo", cli.get("telefono"), "dni"))}
+<p><b>PRIMERA:</b> “EL EMPLEADOR” abona un monto por la búsqueda y entrega de un personal calificado al momento de
+firmar el presente contrato, cuyo pago será por única vez de {campo(monto, "medio")}{equivalencia}, {garantia}.</p>
+<p><b>SEGUNDA:</b> {segunda}</p>
+<p><b>TERCERA:</b> En caso de que “EL EMPLEADOR” no cumpliera con el pago del personal contratado y/o incurriera en
+falta a las normas laborales según la Ley N° 31047 vigente, no tendrá opción a un siguiente reemplazo y/o se anulará
+el presente contrato.</p>
+<p><b>CUARTA:</b> Si “EL EMPLEADOR” decidiera finalizar la relación laboral, deberá cumplir con otorgar a LA
+TRABAJADORA un preaviso de treinta (30) días calendario. En caso de CAMBIO del personal contratado, “EL EMPLEADOR”
+se compromete a CANCELAR LOS DÍAS TRABAJADOS del personal contratado saliente, antes de efectuarse el cambio del
+personal en nuestra oficina.</p>
+<p><b>QUINTA:</b> “EL EMPLEADOR” facilitará a LA TRABAJADORA los materiales necesarios para que desarrolle sus
+actividades. Asimismo, ambos, de mutuo acuerdo, podrán dar por finalizada la relación laboral; también se pueden
+originar cambios no mencionados, pero sí verbales, dentro de la contratación por el presente documento.</p>
+<p><b>SEXTA:</b> Si LA TRABAJADORA decidiera finalizar la presente relación laboral, deberá otorgar a
+“EL EMPLEADOR” un plazo de preaviso de treinta (30) días calendario y esperar su reemplazo.</p>
+<p><b>SÉPTIMA:</b> LA AGENCIA DE EMPLEOS {e(agencia)} no es responsable legal del comportamiento de LA
+TRABAJADORA, quien será la única responsable. Asimismo, en caso de reconocerse perjuicios ocasionados a
+“EL EMPLEADOR”, se procederá conforme a lo que por ley corresponda.</p>
+<p><b>OCTAVA:</b> En caso de que “EL EMPLEADOR” desistiera de nuestros servicios dentro de las 24 horas de haber
+suscrito el presente contrato, {octava_fin}</p>
+{cierre}
+<div class="firmas">{firma("firma_cliente", "EMPLEADOR", cli.get("nombre"))}
+{firma("firma_agencia", "LA AGENCIA", f"{AGENCIA_NOMBRE} {agencia}")}</div>
+{nota}</section>"""
 
     hoja2 = f"""<section class="hoja">{numero}
 <h1>CONTRATO DE TRABAJO</h1>
@@ -3273,11 +3385,11 @@ y su dignidad.</p>
   .cierre {{ font-weight: bold; margin-top: 10px; }}
   .firmas {{ display: flex; justify-content: space-between; gap: 70px; margin-top: 28px;
             break-inside: avoid; }}
-  .firma {{ flex: 1; text-align: center; }}
+  .firma {{ flex: 1; min-width: 0; text-align: center; }}
   .trazo {{ height: 62px; display: flex; align-items: flex-end; justify-content: center; }}
   .trazo svg {{ width: 100%; height: 62px; }}
   .nombre-firma {{ color: #2A2230; font-family: "Segoe Script", "Snell Roundhand", "Apple Chancery",
-                   "Brush Script MT", cursive; font-weight: normal; line-height: 1.1; white-space: nowrap; }}
+                   "Brush Script MT", cursive; font-weight: normal; line-height: 1.1; }}
   .linea {{ border-top: 1px solid #000; padding-top: 5px; font-weight: bold; font-size: 10.5pt; }}
   .quien {{ font-size: 8.5pt; color: #555; margin-top: 1px; }}
   .nota {{ text-align: center; font-size: 8.5pt; color: #777; margin-top: 12px; }}
@@ -3287,12 +3399,811 @@ y su dignidad.</p>
     .hoja {{ margin: 0; width: auto; min-height: 0; padding: 0; box-shadow: none; }}
     .hoja + .hoja {{ break-before: page; page-break-before: always; }}
   }}
-</style>{auto}</head><body>
+</style></head><body>
 <div class="barra"><span>Contrato N° {c['id']} · {e(cli.get('nombre'))} y {e(t.get('nombre'))} · 2 hojas</span>
 <button onclick="window.print()">Imprimir</button></div>
 {hoja1}
 {hoja2}
 </body></html>"""
+
+
+# ---------------------------------------------------------------- Contrato en Word
+# «Imprimir» abre el contrato en Word: una hoja A4 con letra de tamaño fijo, que ningún navegador achica al imprimir.
+# El .docx se arma desde el mismo HTML que se firma y se guarda (así un contrato firmado conserva exactamente su texto)
+# y solo con la biblioteca estándar: un .docx es un ZIP con XML.
+COLOR_DATO_CONTRATO = "99104F"     # dato escrito sobre la línea punteada, como en el contrato HTML
+COLOR_FIRMA_CONTRATO = "2A2230"    # nombre en letra manuscrita y trazo de la firma dibujada
+ANCHO_WORD = 10092       # ancho útil en vigésimos de punto: A4 (11906) menos márgenes de 16 mm, como el contrato HTML
+ALTO_FIRMA_WORD = 930    # recuadro de cada firma: 46,5 pt (los 62 px del contrato HTML)
+MINIMOS_CAMPO = {"corto": 27, "medio": 90, "dni": 82.5}   # ancho mínimo (pt) de cada dato punteado, como en el HTML
+_RELACION_WORD = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+_TIPOS_WORD = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
+    '<Override PartName="/word/document.xml" '
+    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    '<Override PartName="/word/styles.xml" '
+    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+    '<Override PartName="/word/settings.xml" '
+    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>')
+# Calibri de 10,5 pt con el interlineado del contrato HTML: «line-height: 1.38» son 14,5 pt, y en Word un interlineado
+# múltiple se mide sobre el renglón sencillo de la letra (en Calibri, 1,22 veces su tamaño): 1,38 / 1,22 = 1,13 (272/240).
+# Entre párrafos, los 6 px del HTML (4,5 pt = 90). Con 1,38 «de Word» cada renglón crecería un 22 % y las firmas no
+# cabrían en la hoja.
+INTERLINEADO_WORD = 272
+_ESTILOS_WORD = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults>'
+    '<w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/>'
+    '<w:color w:val="111111"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="es-PE"/></w:rPr></w:rPrDefault>'
+    f'<w:pPrDefault><w:pPr><w:spacing w:after="90" w:line="{INTERLINEADO_WORD}" w:lineRule="auto"/></w:pPr></w:pPrDefault>'
+    '</w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/>'
+    '<w:qFormat/></w:style></w:styles>')
+_AJUSTES_WORD = (   # modo actual de Word: sin el aviso «Modo de compatibilidad»
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:zoom w:percent="100"/>'
+    '<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" '
+    'w:val="15"/></w:compat></w:settings>')
+
+
+def _espacios_como_navegador(tramos):
+    """Como en pantalla: los espacios seguidos cuentan como uno y no hay espacios al principio ni al final."""
+    limpios = []
+    for tramo in tramos:
+        texto = re.sub(r"[ \t\r\n\f]+", " ", tramo["texto"])
+        if tramo["campo"] is not None:
+            texto = texto.replace("\xa0", " ").strip()      # un dato vacío trae un espacio duro para verse
+        elif not limpios or limpios[-1]["texto"].endswith(" "):
+            texto = texto.lstrip(" ")
+        if texto or tramo["campo"] is not None:
+            limpios.append(dict(tramo, texto=texto))
+    if limpios and limpios[-1]["campo"] is None:
+        limpios[-1]["texto"] = limpios[-1]["texto"].rstrip(" ")
+    return limpios
+
+
+class _LectorContrato(HTMLParser):
+    """Separa el HTML de html_contrato en hojas de bloques: párrafos con sus tramos (negrita o dato punteado),
+    renglones de datos y firmas. Lo que solo sirve en pantalla (la barra con el botón Imprimir) se omite."""
+    VACIOS = {"meta", "br", "img", "hr", "link", "polyline"}
+    OMITIDOS = {"head", "title", "style", "script", "button"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.hojas, self.pila = [], []      # pila: (etiqueta, clases, lo que abrió: bloque, campo, firma...)
+        self.bloque = self.firmas = self.firma = None
+        self.titulo = ""
+
+    def _omitir(self):
+        return not self.hojas or any(t in self.OMITIDOS or "barra" in c for t, c, _ in self.pila)
+
+    def handle_starttag(self, etiqueta, atributos):
+        datos = dict(atributos)
+        clases = set((datos.get("class") or "").split())
+        if etiqueta == "polyline":
+            trazo = self.firma and self.firma["trazo"]
+            if trazo and trazo[0] == "dibujo":
+                puntos = []
+                for par in (datos.get("points") or "").split():
+                    try:
+                        x, y = (float(v) for v in par.split(","))
+                    except ValueError:
+                        continue
+                    puntos.append((x, y))
+                trazo[3].append(puntos)
+            return
+        if etiqueta in self.VACIOS:
+            return
+        marca = None
+        if etiqueta == "section" and "hoja" in clases:
+            self.hojas.append([])
+        elif self._omitir():
+            pass
+        elif self.firmas is None and etiqueta == "div" and "firmas" in clases:
+            self.firmas, marca = [], "firmas"
+        elif self.firmas is not None and self.firma is None and etiqueta == "div" and "firma" in clases:
+            self.firma, marca = {"trazo": None, "linea": "", "quien": ""}, "firma"
+        elif self.firma is not None:
+            if etiqueta == "span" and "nombre-firma" in clases:
+                tamano = re.search(r"font-size:\s*(\d+(?:\.\d+)?)pt", datos.get("style") or "")
+                self.firma["trazo"], marca = ["nombre", "", float(tamano[1]) if tamano else 16.0], "nombre"
+            elif etiqueta == "svg":
+                caja = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", datos.get("viewbox") or "")]
+                if len(caja) == 4 and caja[2] > 0 and caja[3] > 0:
+                    self.firma["trazo"] = ["dibujo", caja[2], caja[3], []]
+            elif etiqueta == "div" and clases & {"linea", "quien"}:
+                marca = "linea" if "linea" in clases else "quien"
+        elif self.bloque is None and (etiqueta in ("h1", "p") or etiqueta == "div" and clases & {"numero", "fila"}):
+            tipo = etiqueta if etiqueta in ("h1", "p") else "numero" if "numero" in clases else "fila"
+            self.bloque, marca = {"tipo": tipo, "clases": clases, "tramos": []}, "bloque"
+        elif self.bloque is not None and etiqueta == "span" and "campo" in clases:
+            variante = next((v for v in ("largo", "dni", "medio", "corto") if v in clases), "")
+            self.bloque["tramos"].append({"texto": "", "negrita": False, "campo": variante})
+            marca = "campo"
+        self.pila.append((etiqueta, clases, marca))
+
+    def handle_endtag(self, etiqueta):
+        if etiqueta in self.VACIOS:
+            return
+        while self.pila:          # como un navegador: lo que quedó sin cerrar se cierra con lo que lo contiene
+            abierta, _, marca = self.pila.pop()
+            if marca == "bloque":
+                self.bloque["tramos"] = _espacios_como_navegador(self.bloque["tramos"])
+                self.hojas[-1].append(self.bloque)
+                self.bloque = None
+            elif marca == "firma":
+                self.firmas.append(self.firma)
+                self.firma = None
+            elif marca == "firmas":
+                self.hojas[-1].append({"tipo": "firmas", "firmas": self.firmas})
+                self.firmas = None
+            if abierta == etiqueta:
+                break
+
+    def handle_data(self, texto):
+        if self.pila and self.pila[-1][0] == "title":
+            self.titulo += texto
+        if self._omitir():
+            return
+        marcas = [m for _, _, m in self.pila if m]
+        if self.firma is not None:
+            if marcas and marcas[-1] in ("linea", "quien"):
+                self.firma[marcas[-1]] += texto
+            elif marcas and marcas[-1] == "nombre":
+                self.firma["trazo"][1] += texto
+            return
+        if self.bloque is None:
+            return
+        tramos = self.bloque["tramos"]
+        if marcas[-1] == "campo":
+            tramos[-1]["texto"] += texto
+            return
+        negrita = any(t == "b" for t, _, _ in self.pila)
+        if tramos and tramos[-1]["campo"] is None and tramos[-1]["negrita"] == negrita:
+            tramos[-1]["texto"] += texto
+        else:
+            tramos.append({"texto": texto, "negrita": negrita, "campo": None})
+
+
+def _texto_word(texto):
+    """Texto para el XML de Word: sin caracteres de control y con &, < y > escapados."""
+    return html.escape(re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", texto), quote=False)
+
+
+def _tramo_word(texto, negrita=False, color=None, tamano=None, fuente=None, punteado=False):
+    """Un tramo de texto con su formato (tamaño en puntos)."""
+    formato = ""
+    if fuente:
+        formato += f'<w:rFonts w:ascii="{fuente}" w:hAnsi="{fuente}" w:cs="{fuente}"/>'
+    if negrita:
+        formato += "<w:b/><w:bCs/>"
+    if color:
+        formato += f'<w:color w:val="{color}"/>'
+    if tamano:
+        formato += f'<w:sz w:val="{round(tamano * 2)}"/><w:szCs w:val="{round(tamano * 2)}"/>'
+    if punteado:
+        formato += '<w:u w:val="dotted" w:color="444444"/>'
+    return (f"<w:r>{f'<w:rPr>{formato}</w:rPr>' if formato else ''}"
+            f'<w:t xml:space="preserve">{_texto_word(texto)}</w:t></w:r>')
+
+
+def _parrafo_word(contenido="", alinear="both", antes=0, despues=90, linea=INTERLINEADO_WORD, exacta=False, junto=False,
+                  salto=False, raya_arriba=False):
+    """Párrafo; espacios en vigésimos de punto (linea 240 = renglón sencillo de la letra)."""
+    formato = ("<w:keepNext/>" if junto else "") + ("<w:pageBreakBefore/>" if salto else "")
+    if raya_arriba:
+        formato += '<w:pBdr><w:top w:val="single" w:sz="6" w:space="4" w:color="000000"/></w:pBdr>'
+    formato += (f'<w:spacing w:before="{antes}" w:after="{despues}" w:line="{linea}" '
+                f'w:lineRule="{"exact" if exacta else "auto"}"/><w:jc w:val="{alinear}"/>')
+    return f"<w:p><w:pPr>{formato}</w:pPr>{contenido}</w:p>"
+
+
+def _campo_word(texto, variante):
+    """Dato escrito sobre la línea punteada, con espacios duros hasta su ancho mínimo, como en el contrato HTML."""
+    falta = MINIMOS_CAMPO.get(variante, 22.5) - len(texto) * 5.2        # ~5,2 pt por letra en Calibri de 10,5
+    lado = max(2, math.ceil(falta / 2 / 2.4))                           # un espacio duro mide ~2,4 pt
+    return _tramo_word("\xa0" * lado + texto + "\xa0" * lado, color=COLOR_DATO_CONTRATO, punteado=True)
+
+
+def _celda_word(ancho, contenido, punteada=False, sin_cortes=False):
+    formato = f'<w:tcW w:w="{ancho}" w:type="dxa"/>'
+    if punteada:
+        formato += '<w:tcBorders><w:bottom w:val="dotted" w:sz="8" w:space="0" w:color="444444"/></w:tcBorders>'
+    formato += ("<w:noWrap/>" if sin_cortes else "") + '<w:vAlign w:val="bottom"/>'
+    return f"<w:tc><w:tcPr>{formato}</w:tcPr>{contenido}</w:tc>"
+
+
+def _tabla_word(anchos, filas):
+    """Tabla sin bordes y de ancho fijo; filas: [(propiedades de la fila, [celdas])]."""
+    rejilla = "".join(f'<w:gridCol w:w="{ancho}"/>' for ancho in anchos)
+    cuerpo = "".join(f"<w:tr>{f'<w:trPr>{propiedades}</w:trPr>' if propiedades else ''}{''.join(celdas)}</w:tr>"
+                     for propiedades, celdas in filas)
+    return (f'<w:tbl><w:tblPr><w:tblW w:w="{sum(anchos)}" w:type="dxa"/><w:tblLayout w:type="fixed"/>'
+            '<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>'
+            f"</w:tblPr><w:tblGrid>{rejilla}</w:tblGrid>{cuerpo}</w:tbl>")
+
+
+def _fila_word(tramos):
+    """Renglón de datos («SR(A) … Identificado con DNI N° …»): cada dato sobre su propia línea punteada."""
+    celdas = [(t["texto"].strip(), t["campo"]) for t in tramos if t["campo"] is not None or t["texto"].strip()]
+    anchos = []
+    for texto, variante in celdas:
+        if variante is None:
+            anchos.append(round(len(texto) * 10.5 * 0.58 * 20) + 120)   # etiqueta en negrita y 6 pt de respiro
+        elif variante == "largo":
+            anchos.append(0)                                           # se reparte lo que sobra
+        else:
+            anchos.append(max(round(MINIMOS_CAMPO.get(variante, 22.5) * 20), round(len(texto) * 5.2 * 20) + 240))
+    sobra, libres = ANCHO_WORD - sum(anchos), anchos.count(0)
+    if libres:
+        anchos = [ancho or max(1440, sobra // libres) for ancho in anchos]
+    elif anchos:
+        anchos[-1] += max(0, sobra)
+    total = sum(anchos)
+    if total > ANCHO_WORD:
+        anchos = [ancho * ANCHO_WORD // total for ancho in anchos]
+    xml = []
+    for (texto, variante), ancho in zip(celdas, anchos):
+        if variante is None:
+            parrafo = _parrafo_word(_tramo_word(texto, negrita=True), "left", despues=0, linea=240)
+            xml.append(_celda_word(ancho, parrafo, sin_cortes=True))
+        else:
+            parrafo = _parrafo_word(_tramo_word("\xa0" + texto if variante == "largo" else texto, color=COLOR_DATO_CONTRATO),
+                                    "left" if variante == "largo" else "center", despues=0, linea=240)
+            xml.append(_celda_word(ancho, parrafo, punteada=True))
+    # Word une dos tablas seguidas: un renglón mínimo las separa y da el aire entre renglones del contrato
+    return _tabla_word(anchos, [("", xml)]) + _parrafo_word(despues=0, linea=100, exacta=True)
+
+
+def _pixeles_firma(ancho, alto, lineas):
+    """Firma dibujada en una cuadrícula de hasta 1200 px: (ancho, alto, renglones comprimidos). Cada píxel es 0
+    (transparente) o 1 (trazo) y cada renglón empieza con el filtro 0 de PNG, como lo leen PNG y PDF."""
+    import zlib
+    escala = min(3.0, 1200 / max(ancho, alto))
+    w, h = max(1, round(ancho * escala)), max(1, round(alto * escala))
+    pixeles = bytearray(w * h)
+    radio = 1.25 * escala                                   # el trazo del contrato mide 2,5
+    alcance = math.ceil(radio)
+    disco = [(dx, dy) for dy in range(-alcance, alcance + 1) for dx in range(-alcance, alcance + 1)
+             if dx * dx + dy * dy <= radio * radio]
+    for puntos in lineas:
+        escalados = [(x * escala, y * escala) for x, y in puntos]
+        for (x0, y0), (x1, y1) in zip(escalados, escalados[1:] or escalados):
+            pasos = min(max(1, math.ceil(math.hypot(x1 - x0, y1 - y0))), 4 * (w + h))
+            for paso in range(pasos + 1):
+                cx, cy = round(x0 + (x1 - x0) * paso / pasos), round(y0 + (y1 - y0) * paso / pasos)
+                for dx, dy in disco:
+                    if 0 <= cx + dx < w and 0 <= cy + dy < h:
+                        pixeles[(cy + dy) * w + cx + dx] = 1
+    return w, h, zlib.compress(b"".join(b"\x00" + bytes(pixeles[y * w:(y + 1) * w]) for y in range(h)), 9)
+
+
+def _png_firma(ancho, alto, lineas):
+    """Firma dibujada como PNG: trazo del color de las firmas del contrato sobre fondo transparente."""
+    import struct
+    import zlib
+    w, h, datos = _pixeles_firma(ancho, alto, lineas)
+
+    def seccion(tipo, contenido):
+        return struct.pack(">I", len(contenido)) + tipo + contenido + struct.pack(">I", zlib.crc32(tipo + contenido))
+
+    return (b"\x89PNG\r\n\x1a\n" + seccion(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 3, 0, 0, 0))
+            + seccion(b"PLTE", bytes(3) + bytes.fromhex(COLOR_FIRMA_CONTRATO)) + seccion(b"tRNS", b"\x00\xff")
+            + seccion(b"IDAT", datos) + seccion(b"IEND", b""))
+
+
+def _imagen_firma_word(trazo, ancho_celda, imagenes):
+    """Firma dibujada dentro de su recuadro, con las proporciones del lienzo en que se firmó."""
+    _, ancho, alto, lineas = trazo
+    imagenes.append(_png_firma(ancho, alto, lineas))
+    numero = len(imagenes)
+    ancho_pt = min((ALTO_FIRMA_WORD / 20 - 4) * ancho / alto, ancho_celda / 20)    # 4 pt de respiro en el alto
+    cx, cy = round(ancho_pt * 12700), round(ancho_pt * alto / ancho * 12700)       # EMU: 12 700 por punto
+    return ('<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+            f'<wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{numero}" name="Firma {numero}"/>'
+            '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            f'<pic:pic><pic:nvPicPr><pic:cNvPr id="{numero}" name="firma{numero}.png"/><pic:cNvPicPr/></pic:nvPicPr>'
+            f'<pic:blipFill><a:blip r:embed="rIdFirma{numero}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>'
+            '</wp:inline></w:drawing></w:r>')
+
+
+def _firmas_word(firmas, fuente, imagenes):
+    """Firmas lado a lado: el trazo (nombre en letra manuscrita o dibujo) sobre la línea, el rol y el nombre."""
+    hueco = 1050                                                  # 70 px entre firmas, como en el HTML
+    ancho = (ANCHO_WORD - hueco * (len(firmas) - 1)) // len(firmas)
+    vacia = _parrafo_word(alinear="center", despues=0, linea=240)
+    anchos, trazos, rotulos = [], [], []
+    for numero, firma in enumerate(firmas):
+        if numero:
+            anchos.append(hueco)
+            trazos.append(_celda_word(hueco, vacia))
+            rotulos.append(_celda_word(hueco, vacia))
+        anchos.append(ancho)
+        trazo, contenido = firma["trazo"], ""
+        if trazo and trazo[0] == "nombre" and trazo[1].strip():
+            contenido = _tramo_word(" ".join(trazo[1].split()), color=COLOR_FIRMA_CONTRATO, tamano=trazo[2], fuente=fuente)
+        elif trazo and trazo[0] == "dibujo" and trazo[3]:
+            contenido = _imagen_firma_word(trazo, ancho, imagenes)
+        trazos.append(_celda_word(ancho, _parrafo_word(contenido, "center", despues=0, linea=240, junto=True)))
+        rotulo = (_parrafo_word(_tramo_word(" ".join(firma["linea"].split()), negrita=True), "center", despues=0,
+                                linea=240, raya_arriba=True)
+                  + _parrafo_word(_tramo_word(" ".join(firma["quien"].split()), color="555555", tamano=8.5), "center",
+                                  despues=0, linea=240))
+        rotulos.append(_celda_word(ancho, rotulo))
+    alto = f'<w:cantSplit/><w:trHeight w:val="{ALTO_FIRMA_WORD}" w:hRule="exact"/>'
+    return _tabla_word(anchos, [(alto, trazos), ("<w:cantSplit/>", rotulos)])
+
+
+def docx_contrato(documento, fuente_firma=None):
+    """El contrato como documento de Word (los bytes de un .docx), a partir de su HTML (html_contrato): las mismas dos
+    hojas, datos y firmas, en A4 y con letra de tamaño fijo. ValueError si el HTML no tiene hojas de contrato."""
+    import io
+    import zipfile
+    lector = _LectorContrato()
+    lector.feed(documento)
+    lector.close()
+    if not any(lector.hojas):
+        raise ValueError("El documento no tiene hojas de contrato.")
+    fuente = fuente_firma or ("Segoe Script" if ES_WINDOWS else "Snell Roundhand")   # la letra de firma de cada sistema
+    imagenes, partes = [], []
+    for numero_hoja, bloques in enumerate(lector.hojas):
+        for indice, bloque in enumerate(bloques):
+            salto = numero_hoja > 0 and indice == 0          # cada hoja del contrato empieza en su propia página
+            if bloque["tipo"] == "firmas":
+                if bloque["firmas"]:
+                    partes.append(_parrafo_word(despues=0, linea=420, exacta=True, junto=True, salto=salto))
+                    partes.append(_firmas_word(bloque["firmas"], fuente, imagenes))
+                continue
+            if bloque["tipo"] == "fila":
+                partes.append(_fila_word(bloque["tramos"]))
+                continue
+            texto, clases = "".join(t["texto"] for t in bloque["tramos"]), bloque["clases"]
+            if bloque["tipo"] == "numero":
+                partes.append(_parrafo_word(_tramo_word(texto, color="888888", tamano=8), "right", despues=30,
+                                            linea=240, salto=salto))
+            elif bloque["tipo"] == "h1":
+                partes.append(_parrafo_word(_tramo_word(texto, negrita=True, color="3B3B3B", tamano=20,
+                                                        fuente="Cambria"), "center", despues=150, linea=240, salto=salto))
+            elif "nota" in clases:
+                partes.append(_parrafo_word(_tramo_word(texto, color="777777", tamano=8.5), "center", antes=180,
+                                            despues=0, linea=240, salto=salto))
+            else:
+                negrita = bool(clases & {"intro", "cierre"})
+                contenido = "".join(_campo_word(t["texto"], t["campo"]) if t["campo"] is not None
+                                    else _tramo_word(t["texto"], negrita=negrita or t["negrita"])
+                                    for t in bloque["tramos"])
+                partes.append(_parrafo_word(contenido, antes=150 if "cierre" in clases else 0,
+                                            junto="cierre" in clases, salto=salto))
+    seccion = ('<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="680" w:right="907" w:bottom="680" '
+               'w:left="907" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>')
+    documento_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document '
+                     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+                     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+                     'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+                     'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+                     'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+                     f'<w:body>{"".join(partes)}{seccion}</w:body></w:document>')
+    encabezado = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">')
+    relaciones = (encabezado + f'<Relationship Id="rIdEstilos" Type="{_RELACION_WORD}styles" Target="styles.xml"/>'
+                  f'<Relationship Id="rIdAjustes" Type="{_RELACION_WORD}settings" Target="settings.xml"/>'
+                  + "".join(f'<Relationship Id="rIdFirma{n}" Type="{_RELACION_WORD}image" Target="media/firma{n}.png"/>'
+                            for n in range(1, len(imagenes) + 1)) + "</Relationships>")
+    salida = io.BytesIO()
+    with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as paquete:
+        paquete.writestr("[Content_Types].xml", _TIPOS_WORD)
+        paquete.writestr("_rels/.rels", encabezado + f'<Relationship Id="rIdDocumento" Type="{_RELACION_WORD}'
+                         'officeDocument" Target="word/document.xml"/></Relationships>')
+        paquete.writestr("word/document.xml", documento_xml)
+        paquete.writestr("word/_rels/document.xml.rels", relaciones)
+        paquete.writestr("word/styles.xml", _ESTILOS_WORD)
+        paquete.writestr("word/settings.xml", _AJUSTES_WORD)
+        for numero, imagen in enumerate(imagenes, 1):
+            paquete.writestr(f"word/media/firma{numero}.png", imagen)
+    return salida.getvalue()
+
+
+# ---------------------------------------------------------------- Contrato en PDF
+# Sin Word, «Imprimir» abre el contrato en PDF, que Windows muestra en el navegador (Edge) listo para imprimir: siempre
+# en A4 y con la letra a su tamaño. Se dibuja desde el mismo HTML que el .docx, solo con la biblioteca estándar y con
+# letras que trae todo lector de PDF (Helvetica y Times), así que no hay nada que instalar ni incrustar.
+_LETRAS_PDF = (" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+               "\xa0¡¿ª°º«»·ÁÉÍÓÚÜÑáéíóúüñÀÈÌÒÙàèìòùÂÊÎÔÛâêîôûÄËÏÖäëïöÇç“”‘’–—…€")
+_ANCHOS_PDF = {   # ancho de cada letra de _LETRAS_PDF en milésimas de su tamaño (métricas de las letras estándar)
+    "Helvetica": "278 278 355 557 557 890 667 191 334 334 390 584 278 334 278 278 557 557 557 557 557 557 557 557 "
+                 "557 557 278 278 584 584 584 557 1016 667 667 723 723 667 611 778 723 278 500 667 557 834 723 778 "
+                 "667 778 723 667 611 723 667 944 667 667 611 278 278 278 470 557 334 557 557 500 557 557 278 557 "
+                 "557 223 223 500 223 834 557 557 557 557 334 500 278 557 500 723 500 500 500 334 260 334 584 278 "
+                 "334 611 371 400 366 557 557 278 667 667 278 778 723 723 723 557 557 278 557 557 557 557 667 667 "
+                 "278 778 723 557 557 278 557 557 667 667 278 778 723 557 557 278 557 557 667 667 278 778 557 557 "
+                 "278 557 723 500 334 334 223 223 557 1000 1000 745",
+    "Helvetica-Bold": "278 334 475 557 557 890 723 238 334 334 390 584 278 334 278 278 557 557 557 557 557 557 "
+                      "557 557 557 557 334 334 584 584 584 611 976 723 723 723 723 667 611 778 723 278 557 723 611 "
+                      "834 723 778 667 778 723 667 611 723 667 944 667 667 611 334 278 334 584 557 334 557 611 557 "
+                      "611 557 334 611 611 278 278 557 278 890 611 611 611 611 390 557 334 611 557 778 557 557 500 "
+                      "390 280 390 584 278 334 611 371 400 366 557 557 278 723 667 278 778 723 723 723 557 557 278 "
+                      "611 611 611 611 723 667 278 778 723 557 557 278 611 611 723 667 278 778 723 557 557 278 611 "
+                      "611 723 667 278 778 557 557 278 611 723 557 500 500 278 278 557 1000 1000 745",
+    "Times-Bold": "250 334 556 500 500 1000 834 278 334 334 500 570 250 334 250 278 500 500 500 500 500 500 500 500 "
+                  "500 500 334 334 570 570 570 500 931 723 667 723 723 667 611 778 778 390 500 778 667 944 723 778 "
+                  "611 778 723 557 667 723 723 1000 723 723 667 334 278 334 582 500 334 500 557 444 557 444 334 500 "
+                  "557 278 334 557 278 834 557 500 557 557 444 390 334 557 500 723 500 500 444 395 221 395 521 250 "
+                  "334 500 300 400 331 500 500 250 723 667 390 778 723 723 723 500 444 278 500 557 557 557 723 667 "
+                  "390 778 723 500 444 278 500 557 723 667 390 778 723 500 444 278 500 557 723 667 390 778 500 444 "
+                  "278 500 723 444 500 500 334 334 500 1000 1000 745",
+    "Times-Italic": "250 334 420 500 500 834 778 214 334 334 500 675 250 334 250 278 500 500 500 500 500 500 500 "
+                    "500 500 500 334 334 675 675 675 500 920 611 611 667 723 611 611 723 723 334 444 667 557 834 667 "
+                    "723 611 723 611 500 557 723 611 834 611 557 557 390 278 390 422 500 334 500 500 444 500 444 278 "
+                    "500 500 278 278 444 278 723 500 500 500 500 390 390 278 500 444 667 444 444 390 400 275 400 542 "
+                    "250 390 500 276 400 311 500 500 250 611 611 334 723 723 723 667 500 444 278 500 500 500 500 611 "
+                    "611 334 723 723 500 444 278 500 500 611 611 334 723 723 500 444 278 500 500 611 611 334 723 500 "
+                    "444 278 500 667 444 557 557 334 334 500 890 890 745",
+}
+_FUENTES_PDF = ("Helvetica", "Helvetica-Bold", "Times-Bold", "Times-Italic")   # /F1 a /F4 del PDF
+CUERPO_PDF = 10     # la Helvetica de 10 pt se ve como la Calibri de 10,5 del contrato HTML y de Word
+
+
+@lru_cache(maxsize=None)
+def _anchos_pdf(fuente):
+    return dict(zip(_LETRAS_PDF, map(int, _ANCHOS_PDF[fuente].split())))
+
+
+def _ancho_pdf(texto, fuente, tamano):
+    """Ancho en puntos de un texto (una letra fuera de la tabla cuenta como una letra media)."""
+    anchos = _anchos_pdf(fuente)
+    return sum(anchos.get(letra, 556) for letra in texto) * tamano / 1000
+
+
+def _cadena_pdf(texto):
+    """Texto como cadena de PDF en WinAnsi (la codificación de las letras estándar); lo que no existe sale como «?»."""
+    return "(" + "".join(chr(b) if 32 <= b < 127 and b not in b"()\\" else f"\\{b:03o}"
+                         for b in texto.encode("cp1252", errors="replace")) + ")"
+
+
+def _color_pdf(hexa, trazo=False):
+    rojo, verde, azul = (int(hexa[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return f"{rojo:.3f} {verde:.3f} {azul:.3f} {'RG' if trazo else 'rg'}"
+
+
+class _HojasPDF:
+    """Páginas A4 del contrato y la altura por la que va la escritura, de arriba hacia abajo (en puntos)."""
+    ANCHO, ALTO = 595.28, 841.89
+    MARGEN_X, MARGEN_Y = 45.35, 34.02                 # 16 y 12 mm, como el contrato HTML
+    UTIL = ANCHO - 2 * MARGEN_X
+
+    def __init__(self):
+        self.paginas, self.imagenes = [], []
+        self.nueva()
+
+    def nueva(self):
+        self.ordenes = []
+        self.paginas.append(self.ordenes)
+        self.y = self.ALTO - self.MARGEN_Y
+
+    def reservar(self, alto):
+        """Pasa a otra página si lo que sigue no cabe en esta (salvo que esta todavía esté vacía)."""
+        if self.y - alto < self.MARGEN_Y and self.ordenes:
+            self.nueva()
+
+    def texto(self, x, y, texto, fuente, tamano, color):
+        self.ordenes.append(f"BT /F{_FUENTES_PDF.index(fuente) + 1} {tamano:g} Tf {_color_pdf(color)} "
+                            f"1 0 0 1 {x:.2f} {y:.2f} Tm {_cadena_pdf(texto)} Tj ET")
+
+    def raya(self, x1, x2, y, grosor=0.75, color="000000", punteada=False):
+        self.ordenes.append(f"q {_color_pdf(color, trazo=True)} {grosor:g} w {'[0.9 1.8] 0 d ' if punteada else ''}"
+                            f"{x1:.2f} {y:.2f} m {x2:.2f} {y:.2f} l S Q")
+
+    def imagen(self, pixeles, x, y, ancho, alto):
+        self.imagenes.append(pixeles)
+        self.ordenes.append(f"q {ancho:.2f} 0 0 {alto:.2f} {x:.2f} {y:.2f} cm /Im{len(self.imagenes)} Do Q")
+
+
+def _palabras_sueltas(texto, fuente, color):
+    return [[(palabra, (fuente, color, None))] for palabra in texto.split()]
+
+
+def _palabras_pdf(tramos, tamano, fuente="Helvetica", color="111111", negrita=False):
+    """Palabras de un párrafo, cada una en trozos con su letra: (texto, (fuente, color, dato)). «dato» es el número del
+    dato punteado del trozo: así la línea punteada sigue por los espacios de un dato de varias palabras."""
+    palabras, actual = [], []
+    for numero, tramo in enumerate(tramos):
+        texto = tramo["texto"]
+        if tramo["campo"] is not None:      # espacios duros hasta su ancho mínimo, como en el HTML y en Word
+            falta = MINIMOS_CAMPO.get(tramo["campo"], 22.5) - _ancho_pdf(texto, "Helvetica", tamano)
+            lado = max(2, math.ceil(falta / 2 / _ancho_pdf("\xa0", "Helvetica", tamano)))
+            texto, estilo = "\xa0" * lado + texto + "\xa0" * lado, ("Helvetica", COLOR_DATO_CONTRATO, numero)
+        else:
+            letra = fuente if fuente != "Helvetica" else "Helvetica-Bold" if negrita or tramo["negrita"] else fuente
+            estilo = (letra, color, None)
+        for indice, trozo in enumerate(texto.split(" ")):
+            if indice and actual:
+                palabras.append(actual)
+                actual = []
+            if trozo:
+                actual.append((trozo, estilo))
+    if actual:
+        palabras.append(actual)
+    return palabras
+
+
+def _renglones_pdf(palabras, ancho_maximo, tamano):
+    """Reparte las palabras en renglones que caben en el ancho: [([(palabra, ancho)], ancho del renglón)]."""
+    espacio = _ancho_pdf(" ", "Helvetica", tamano)
+    renglones, actual, ocupado = [], [], 0
+    for palabra in palabras:
+        medida = sum(_ancho_pdf(texto, estilo[0], tamano) for texto, estilo in palabra)
+        if actual and ocupado + espacio + medida > ancho_maximo + 0.01:      # sin cortar por un redondeo
+            renglones.append((actual, ocupado))
+            actual, ocupado = [], 0
+        ocupado += (espacio if actual else 0) + medida
+        actual.append((palabra, medida))
+    if actual:
+        renglones.append((actual, ocupado))
+    return renglones
+
+
+def _dibujar_renglon_pdf(hojas, renglon, x, y, ancho_maximo, tamano, alinear="izquierda", justificar=False):
+    palabras, ocupado = renglon
+    espacio = _ancho_pdf(" ", "Helvetica", tamano)
+    if justificar and len(palabras) > 1:
+        espacio += (ancho_maximo - ocupado) / (len(palabras) - 1)
+    elif alinear == "centro":
+        x += (ancho_maximo - ocupado) / 2
+    elif alinear == "derecha":
+        x += ancho_maximo - ocupado
+    anterior = None                                    # dato punteado del trozo anterior
+    for indice, (palabra, _) in enumerate(palabras):
+        if indice:
+            if anterior is not None and palabra[0][1][2] == anterior:
+                hojas.raya(x, x + espacio, y - 2.2, 0.8, "444444", punteada=True)
+            x += espacio
+        for texto, (fuente, color, dato) in palabra:
+            ancho = _ancho_pdf(texto, fuente, tamano)
+            hojas.texto(x, y, texto, fuente, tamano, color)
+            if dato is not None:
+                hojas.raya(x, x + ancho, y - 2.2, 0.8, "444444", punteada=True)
+            x += ancho
+            anterior = dato
+
+
+def _parrafo_pdf(hojas, tramos, tamano=CUERPO_PDF, fuente="Helvetica", color="111111", negrita=False,
+                 alinear="justificado", antes=0, despues=4.5, interlineado=1.38, junto=0):
+    """Párrafo con el interlineado y los espacios del HTML; «junto» es el alto de lo que debe seguirlo en su página."""
+    renglones = _renglones_pdf(_palabras_pdf(tramos, tamano, fuente, color, negrita), hojas.UTIL, tamano)
+    alto_renglon = tamano * interlineado
+    hojas.reservar(antes + alto_renglon * len(renglones) + junto)
+    hojas.y -= antes
+    for numero, renglon in enumerate(renglones):
+        hojas.reservar(alto_renglon)
+        hojas.y -= alto_renglon
+        _dibujar_renglon_pdf(hojas, renglon, hojas.MARGEN_X, hojas.y + (alto_renglon - tamano) / 2 + 0.22 * tamano,
+                             hojas.UTIL, tamano, alinear, justificar=alinear == "justificado" and numero < len(renglones) - 1)
+    hojas.y -= despues
+
+
+def _fila_pdf(hojas, tramos, tamano=CUERPO_PDF):
+    """Renglón de datos: etiquetas en negrita y cada dato sobre su línea punteada (uno largo pasa a otro renglón)."""
+    celdas = [(t["texto"].strip(), t["campo"]) for t in tramos if t["campo"] is not None or t["texto"].strip()]
+    anchos = []
+    for texto, variante in celdas:
+        if variante is None:
+            anchos.append(_ancho_pdf(texto, "Helvetica-Bold", tamano) + 4.5)       # 6 px hasta la celda siguiente
+        elif variante == "largo":
+            anchos.append(0)                                                       # se reparte lo que sobra
+        else:
+            anchos.append(max(MINIMOS_CAMPO.get(variante, 22.5), _ancho_pdf(texto, "Helvetica", tamano) + 9) + 4.5)
+    sobra, libres = hojas.UTIL - sum(anchos), anchos.count(0)
+    if libres:
+        anchos = [ancho or max(72, sobra / libres) for ancho in anchos]
+    elif anchos:
+        anchos[-1] += max(0, sobra)
+    total = sum(anchos)
+    if total > hojas.UTIL:
+        anchos = [ancho * hojas.UTIL / total for ancho in anchos]
+    alto_renglon, contenido = tamano * 1.25, []
+    for (texto, variante), ancho in zip(celdas, anchos):
+        letra, color = ("Helvetica-Bold", "111111") if variante is None else ("Helvetica", COLOR_DATO_CONTRATO)
+        sangria = 4.5 if variante == "largo" else 0
+        renglones = _renglones_pdf(_palabras_sueltas(texto, letra, color), ancho - 4.5 - sangria, tamano)
+        contenido.append((renglones, ancho, sangria, variante))
+    alto = max([len(renglones) for renglones, *_ in contenido] + [1]) * alto_renglon + 3
+    hojas.reservar(alto)
+    x, base = hojas.MARGEN_X, hojas.y - alto_renglon + 0.3 * tamano   # como en el HTML: todo junto al primer renglón
+    for renglones, ancho, sangria, variante in contenido:
+        for numero, renglon in enumerate(renglones):
+            _dibujar_renglon_pdf(hojas, renglon, x + sangria, base - numero * alto_renglon, ancho - 4.5 - sangria,
+                                 tamano, "izquierda" if variante in (None, "largo") else "centro")
+        if variante is not None:
+            hojas.raya(x, x + ancho - 4.5, base - (max(1, len(renglones)) - 1) * alto_renglon - 2.8, 0.8, "444444",
+                       punteada=True)
+        x += ancho
+    hojas.y -= alto + 5.25
+
+
+def _medidas_firmas_pdf(firmas):
+    """(ancho de cada recuadro, renglones del nombre de cada firmante, alto total del bloque de firmas)."""
+    ancho = (_HojasPDF.UTIL - 52.5 * (len(firmas) - 1)) / len(firmas)    # 70 px entre firmas, como en el HTML
+    quienes = [_renglones_pdf(_palabras_sueltas(firma["quien"], "Helvetica", "555555"), ancho, 8.5) for firma in firmas]
+    return ancho, quienes, 21 + 46.5 + 23 + 10.6 * (max([len(q) for q in quienes] + [1]) - 1) + 3
+
+
+def _firmas_pdf(hojas, firmas, tamano=CUERPO_PDF):
+    """Firmas lado a lado: el trazo (nombre en cursiva o dibujo) sobre la raya, el rol y el nombre de quien firma."""
+    ancho, quienes, alto = _medidas_firmas_pdf(firmas)
+    hojas.reservar(alto)
+    raya = hojas.y - 21 - 46.5                      # 28 px de aire y el recuadro de 62 px del HTML
+    for numero, (firma, quien) in enumerate(zip(firmas, quienes)):
+        x = hojas.MARGEN_X + numero * (ancho + 52.5)
+        trazo = firma["trazo"]
+        if trazo and trazo[0] == "nombre" and trazo[1].strip():
+            renglones = _renglones_pdf(_palabras_sueltas(trazo[1], "Times-Italic", COLOR_FIRMA_CONTRATO), ancho, trazo[2])
+            for orden, renglon in enumerate(reversed(renglones)):
+                _dibujar_renglon_pdf(hojas, renglon, x, raya + 4 + orden * trazo[2] * 1.15, ancho, trazo[2], "centro")
+        elif trazo and trazo[0] == "dibujo" and trazo[3]:
+            _, w, h, lineas = trazo
+            ancho_imagen = min(42.5 * w / h, ancho)
+            hojas.imagen(_pixeles_firma(w, h, lineas), x + (ancho - ancho_imagen) / 2, raya + 2, ancho_imagen,
+                         ancho_imagen * h / w)
+        hojas.raya(x, x + ancho, raya)
+        for renglon in _renglones_pdf(_palabras_sueltas(firma["linea"], "Helvetica-Bold", "111111"), ancho, tamano)[:1]:
+            _dibujar_renglon_pdf(hojas, renglon, x, raya - 12, ancho, tamano, "centro")
+        for orden, renglon in enumerate(quien):
+            _dibujar_renglon_pdf(hojas, renglon, x, raya - 23 - orden * 10.6, ancho, 8.5, "centro")
+    hojas.y -= alto
+
+
+def _escribir_pdf(hojas, titulo):
+    """Arma el archivo: catálogo, páginas, las cuatro letras estándar, las firmas dibujadas y el índice del final."""
+    import zlib
+    imagenes, paginas = hojas.imagenes, hojas.paginas
+    primera = 3 + len(_FUENTES_PDF) + len(imagenes)             # número de objeto de la primera página
+    cuerpos = ["<< /Type /Catalog /Pages 2 0 R /ViewerPreferences << /DisplayDocTitle true >> >>",
+               f"<< /Type /Pages /Kids [{' '.join(f'{primera + 2 * i} 0 R' for i in range(len(paginas)))}] "
+               f"/Count {len(paginas)} >>"]
+    cuerpos += [f"<< /Type /Font /Subtype /Type1 /BaseFont /{fuente} /Encoding /WinAnsiEncoding >>"
+                for fuente in _FUENTES_PDF]
+    cuerpos = [cuerpo.encode("ascii") for cuerpo in cuerpos]
+    for ancho, alto, datos in imagenes:       # índice 0 transparente (máscara por color) y 1 el color de la firma, como el PNG
+        cuerpos.append(f"<< /Type /XObject /Subtype /Image /Width {ancho} /Height {alto} "
+                       f"/ColorSpace [/Indexed /DeviceRGB 1 <000000{COLOR_FIRMA_CONTRATO}>] /BitsPerComponent 8 /Mask [0 0] "
+                       "/Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 1 /BitsPerComponent 8 "
+                       f"/Columns {ancho} >> /Length {len(datos)} >>\nstream\n".encode("ascii") + datos + b"\nendstream")
+    recursos = ("<< /Font << " + " ".join(f"/F{i + 1} {3 + i} 0 R" for i in range(len(_FUENTES_PDF))) + " >>"
+                + (" /XObject << " + " ".join(f"/Im{i + 1} {3 + len(_FUENTES_PDF) + i} 0 R"
+                                              for i in range(len(imagenes))) + " >>" if imagenes else "") + " >>")
+    for numero, ordenes in enumerate(paginas):
+        contenido = zlib.compress("\n".join(ordenes).encode("ascii"))
+        cuerpos.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_HojasPDF.ANCHO} {_HojasPDF.ALTO}] "
+                       f"/Resources {recursos} /Contents {primera + 2 * numero + 1} 0 R >>".encode("ascii"))
+        cuerpos.append(f"<< /Filter /FlateDecode /Length {len(contenido)} >>\nstream\n".encode("ascii")
+                       + contenido + b"\nendstream")
+    cuerpos.append(f"<< /Title <FEFF{titulo.strip().encode('utf-16-be').hex().upper()}> "
+                   "/Producer (Agencia de Empleos) >>".encode("ascii"))
+    salida, posiciones = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"), []
+    for numero, cuerpo in enumerate(cuerpos, 1):
+        posiciones.append(len(salida))
+        salida += f"{numero} 0 obj\n".encode("ascii") + cuerpo + b"\nendobj\n"
+    indice = len(salida)
+    salida += (f"xref\n0 {len(cuerpos) + 1}\n0000000000 65535 f \n" + "".join(f"{p:010d} 00000 n \n" for p in posiciones)
+               + f"trailer\n<< /Size {len(cuerpos) + 1} /Root 1 0 R /Info {len(cuerpos)} 0 R >>\n"
+               f"startxref\n{indice}\n%%EOF\n").encode("ascii")
+    return bytes(salida)
+
+
+def pdf_contrato(documento):
+    """El contrato en PDF (bytes) a partir de su HTML (html_contrato): las mismas dos hojas, datos y firmas, en A4.
+    ValueError si el HTML no tiene hojas de contrato."""
+    lector = _LectorContrato()
+    lector.feed(documento)
+    lector.close()
+    if not any(lector.hojas):
+        raise ValueError("El documento no tiene hojas de contrato.")
+    hojas = _HojasPDF()
+    for numero_hoja, bloques in enumerate(lector.hojas):
+        if numero_hoja:
+            hojas.nueva()                                  # cada hoja del contrato empieza en su propia página
+        for indice, bloque in enumerate(bloques):
+            tipo, clases = bloque["tipo"], bloque.get("clases", set())
+            if tipo == "firmas":
+                if bloque["firmas"]:
+                    _firmas_pdf(hojas, bloque["firmas"])
+            elif tipo == "fila":
+                _fila_pdf(hojas, bloque["tramos"])
+            elif tipo == "numero":
+                _parrafo_pdf(hojas, bloque["tramos"], 8, color="888888", alinear="derecha", despues=1.5,
+                             interlineado=1.2)
+            elif tipo == "h1":
+                _parrafo_pdf(hojas, bloque["tramos"], 20, "Times-Bold", "3B3B3B", alinear="centro", despues=7.5,
+                             interlineado=1.2)
+            elif "nota" in clases:
+                _parrafo_pdf(hojas, bloque["tramos"], 8.5, color="777777", alinear="centro", antes=9, despues=0,
+                             interlineado=1.25)
+            else:   # el cierre («En señal de conformidad…») va en la misma página que las firmas
+                junto = sum(_medidas_firmas_pdf(b["firmas"])[2] + 25 for b in bloques[indice + 1:]
+                            if "cierre" in clases and b["tipo"] == "firmas" and b["firmas"])
+                _parrafo_pdf(hojas, bloque["tramos"], negrita=bool(clases & {"intro", "cierre"}),
+                             antes=7.5 if "cierre" in clases else 0, junto=junto)
+    return _escribir_pdf(hojas, lector.titulo)
+
+
+def guardar_contrato(ruta, contenido):
+    """Escribe el contrato y devuelve dónde quedó. Si el anterior sigue abierto, se guarda con otro nombre: en Windows
+    no se puede reemplazar un archivo abierto en otro programa (Word, el navegador...), y Word en Mac mostraría su
+    ventana anterior en vez del contrato al día. Word deja un archivo «~$…» junto al documento que tiene abierto."""
+    binario = isinstance(contenido, bytes)
+    otro_nombre = ruta.with_name(f"{ruta.stem}_{datetime.now():%Y%m%d-%H%M%S}{ruta.suffix}")
+    if (ruta.parent / ("~$" + ruta.name[2:])).exists():
+        ruta = otro_nombre
+    try:
+        with archivo_atomico(ruta, binario=binario) as archivo:
+            archivo.write(contenido)
+    except PermissionError:
+        ruta = otro_nombre
+        with archivo_atomico(ruta, binario=binario) as archivo:
+            archivo.write(contenido)
+    return ruta
+
+
+def programa_para(extension):
+    """En Windows, el programa que abre ese tipo de archivo (p. ej. …\\WINWORD.EXE para .docx); "" si no hay."""
+    if not ES_WINDOWS:
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        largo = wintypes.DWORD(1024)
+        ruta = ctypes.create_unicode_buffer(1024)
+        if ctypes.windll.shlwapi.AssocQueryStringW(0, 2, extension, None, ruta, ctypes.byref(largo)) == 0:
+            return ruta.value                                     # 2 = ASSOCSTR_EXECUTABLE
+    except Exception:
+        pass
+    return ""
+
+
+def abre_documentos_word():
+    """True si el equipo tiene con qué abrir un .docx como documento (Word, LibreOffice...). WordPad no sirve: muestra
+    el contrato sin sus tablas. En Mac y Linux decide el sistema al abrirlo (si nada lo abre, se usa el navegador)."""
+    if not ES_WINDOWS:
+        return True
+    return os.path.basename(programa_para(".docx")).lower() not in ("", "wordpad.exe")
+
+
+def quitar_impresion_automatica(carpeta=None):
+    """Los contratos .html que dejaron las versiones anteriores en «contratos» se imprimían solos al abrirse (y al
+    restaurar o recargar el navegador sus pestañas): se les quita eso al arrancar. Devuelve cuántos se corrigieron."""
+    carpeta = Path(CARPETA_CONTRATOS if carpeta is None else carpeta)
+    corregidos = 0
+    try:
+        archivos = [ruta for ruta in carpeta.iterdir() if ruta.suffix.lower() == ".html"]
+    except OSError:
+        return 0
+    for ruta in archivos:
+        try:
+            texto = ruta.read_text(encoding="utf-8")
+            if _IMPRESION_AUTOMATICA in texto:
+                with archivo_atomico(ruta) as archivo:
+                    archivo.write(texto.replace(_IMPRESION_AUTOMATICA, ""))
+                corregidos += 1
+        except (OSError, UnicodeDecodeError):
+            continue     # abierto en otro programa o ilegible: se intenta en el próximo arranque
+    return corregidos
+
+
+def abrir_con_programa(ruta):
+    """Abre el archivo con el programa que el sistema tiene para su tipo. False si no se pudo."""
+    try:
+        if ES_WINDOWS:
+            os.startfile(str(ruta))
+            return True
+        import subprocess
+        return subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(ruta)],
+                              capture_output=True, timeout=60).returncode == 0
+    except Exception:
+        return False
 
 
 def trabaja_en(t, tipo):
@@ -3304,7 +4215,8 @@ class Tarjeta(tk.Frame):
     """Acceso a un área, disponible con el mouse y el teclado."""
 
     def __init__(self, master, titulo, descripcion, comando):
-        super().__init__(master, bg=C["fondo"], width=248, height=174,
+        factor = escala_pantalla(master)
+        super().__init__(master, bg=C["fondo"], width=round(248 * factor), height=round(174 * factor),
                          highlightthickness=1, highlightbackground=C["borde"],
                          highlightcolor=C["acento"], cursor="hand2", takefocus=1)
         self.comando = comando
@@ -3375,10 +4287,8 @@ class PaginaAreas(ttk.Frame):
         cab = ttk.Frame(self, padding=(32, 26, 32, 18))
         cab.pack(fill="x")
         encabezado(cab, "Áreas", "Elija un área para asignar trabajadoras a clientes")
-        ttk.Button(cab, text="Ver asignaciones", style="Secundario.TButton",
-                   command=app.abrir_asignaciones).pack(side="right")
         ttk.Button(cab, text="Eliminar área…", style="Secundario.TButton",
-                   command=lambda: DialogoAreas(app.root, app)).pack(side="right", padx=(0, 12))
+                   command=lambda: DialogoAreas(app.root, app)).pack(side="right")
         ttk.Button(cab, text="Nueva área", style="Primario.TButton",
                    command=app.nueva_area).pack(side="right", padx=(0, 12))
         divisor(self).pack(fill="x")
@@ -3428,7 +4338,9 @@ class DialogoAreas(tk.Toplevel):
                                                ("trab", "Trabajadoras", 130)])
         marco.pack(fill="both", expand=True)
         pie = ttk.Frame(cont)
-        pie.pack(fill="x", pady=(14, 0))
+        # Antes que la lista en el orden de empaque: con poco espacio (pantalla chica o escala 125-150 %) se
+        # achica la lista y los botones de abajo siguen visibles.
+        pie.pack(side="bottom", fill="x", pady=(14, 0), before=marco)
         ttk.Button(pie, text="Cerrar", style="Secundario.TButton", command=self.destroy).pack(side="right")
         ttk.Button(pie, text="Eliminar el área elegida", style="Peligro.TButton",
                    command=self.eliminar).pack(side="right", padx=8)
@@ -3458,7 +4370,6 @@ class PaginaEnlaces(ttk.Frame):
     subtitulo = ""
     filtros = []        # [(clave, texto)]; el primero es el que se cuenta en el menú
     columnas = []       # (clave, título, ancho)
-    volver_a_areas = False
     mostrar_cantidad_pestanas = True
     mostrar_encabezado = True
 
@@ -3471,14 +4382,7 @@ class PaginaEnlaces(ttk.Frame):
         if self.mostrar_encabezado:
             cab = ttk.Frame(self, padding=(32, 26, 32, 16))
             cab.pack(fill="x")
-            encabezado(cab, self.titulo_pagina, self.subtitulo,
-                       volver=app.volver_de_asignaciones if self.volver_a_areas else None,
-                       texto_volver="←  Volver a Áreas")
-        elif self.volver_a_areas:
-            cab = ttk.Frame(self, padding=(32, 12, 32, 8))
-            cab.pack(fill="x")
-            ttk.Button(cab, text="←  Volver a Áreas", style="Enlace.TButton",
-                       command=app.volver_de_asignaciones).pack(side="left")
+            encabezado(cab, self.titulo_pagina, self.subtitulo)
         else:
             ttk.Frame(self, height=20).pack(fill="x")
         self.pestanas = crear_pestanas(self, self.filtros, self.poner_filtro)
@@ -3700,12 +4604,53 @@ class PaginaEnlaces(ttk.Frame):
         if not (c.get("contrato_firmado") == "1" and c.get("contrato_html")) and not (cli and t):
             messagebox.showwarning("Contrato", "El cliente o la trabajadora de esta asignación fue borrado.", parent=self)
             return
+        formato = elegir_impresion(self, c["id"])
+        if formato is None:
+            return
         os.makedirs(CARPETA_CONTRATOS, exist_ok=True)
-        ruta = Path(CARPETA_CONTRATOS) / f"contrato_{c['id']}.html"
-        with archivo_atomico(ruta) as archivo:
-            archivo.write(html_contrato(c, cli or {}, t or {}, imprimir=True))
-        import webbrowser
-        webbrowser.open(ruta.as_uri())
+        base = Path(CARPETA_CONTRATOS) / f"contrato_{c['id']}"
+        documento = html_contrato(c, cli or {}, t or {})
+        # El contrato nunca se imprime solo: se abre y la persona lo imprime una vez. La pantalla confirma dónde se abrió,
+        # para no volver a pulsar «Imprimir» creyendo que no pasó nada (si Word o el navegador quedaron detrás).
+        if formato == "word":
+            # En Word: hoja A4 con letra de tamaño fijo, lista para Archivo > Imprimir.
+            try:
+                docx = docx_contrato(documento)
+            except ValueError:
+                docx = None
+            if docx is not None and abrir_con_programa(guardar_contrato(base.with_suffix(".docx"), docx)):
+                self.avisar_abierto(f"✓ El contrato N° {c['id']} se abrió en Word: imprímalo allí una sola vez "
+                                    "(Archivo > Imprimir).")
+                return
+        # En PDF (o si Word no se pudo abrir): Windows lo abre en el navegador (Edge) para verlo e imprimirlo.
+        try:
+            pdf = pdf_contrato(documento)
+        except ValueError:
+            pdf = None
+        if pdf is not None and abrir_con_programa(guardar_contrato(base.with_suffix(".pdf"), pdf)):
+            self.avisar_abierto(f"✓ El contrato N° {c['id']} se abrió en PDF: imprímalo allí una sola vez "
+                                "(botón de la impresora o Ctrl+P).")
+            return
+        # Último recurso: el contrato en el navegador, con su botón «Imprimir».
+        ruta = guardar_contrato(base.with_suffix(".html"), documento)
+        if ES_WINDOWS:
+            os.startfile(str(ruta))    # el programa predeterminado para .html, sin pasar por una URL file://
+        else:
+            import webbrowser
+            webbrowser.open(ruta.as_uri())
+        self.avisar_abierto(f"✓ El contrato N° {c['id']} se abrió en el navegador: pulse «Imprimir» en la página "
+                            "una sola vez.")
+
+    def avisar_abierto(self, texto):
+        """Confirma en la pantalla que el contrato se abrió, sin poner otra ventana encima de Word o del navegador."""
+        etiqueta = getattr(self, "info", None)
+        if not isinstance(etiqueta, tk.Label):      # pantalla sin construir (sin su etiqueta de información)
+            return
+        try:
+            etiqueta.config(text=texto, fg=C["acento"], font=F["negrita"])
+            self.after(10000, self.actualizar_info)
+        except tk.TclError:
+            pass
 
 
 class AccionRechazada(ValueError):
@@ -3723,9 +4668,8 @@ def leer_registro_actual(db, tabla, id_):
 
 
 class PaginaContratos(PaginaEnlaces):
-    titulo_pagina = "Asignaciones"
+    titulo_pagina = "Contratos"
     subtitulo = "Contrato y garantía + contrato de trabajo: datos, firmas e impresión"
-    volver_a_areas = True
     mostrar_encabezado = False
     filtros = [("por_firmar", "Por firmar"), ("firmados", "Firmados")]
     columnas = [("n", "N°", 50), ("cliente", "Cliente", 180), ("trab", "Trabajadora", 180),
@@ -3751,7 +4695,7 @@ class PaginaContratos(PaginaEnlaces):
         tipo = self.clientes.get(c["cliente_id"], {}).get("tipo_servicio")
         return [c["id"], self.nombre(c, "cliente"), self.nombre(c, "trabajadora"),
                 AREAS.get(tipo, ("-",))[0], c["fecha_enlace"] or "-",
-                texto_plazo_garantia(c) if con_garantia(c) else "No",
+                texto_meses(meses_de_garantia(c)) if con_garantia(c) else "No",
                 f"Firmado  {c['fecha_firma'][:10]}" if c["contrato_firmado"] == "1" else "Sin firmar"]
 
     def editar_datos(self, c):
@@ -3770,10 +4714,7 @@ class PaginaContratos(PaginaEnlaces):
             if error:
                 messagebox.showwarning("Datos del contrato", error, parent=self)
                 return False
-            if "dias_garantia" in d:
-                normalizar_plazo(d)
-            else:
-                d["garantia"] = "Sí" if int(d["meses_garantia"]) else "No"
+            d["garantia"] = "Sí" if int(d["meses_garantia"]) else "No"
             d["porcentaje"] = porcentaje_de(d["comision"], d["sueldo_acordado"])
             try:
                 with self.db.lote():
@@ -3788,7 +4729,11 @@ class PaginaContratos(PaginaEnlaces):
                         raise AccionRechazada("Comisión cobrada",
                             "Este importe ya está cobrado. Deshaga el cobro antes de corregirlo y regístrelo de nuevo.")
                     inicio = leer_fecha(actual["fecha_inicio"])
-                    if inicio:
+                    # Una garantía ya iniciada conserva su fecha de fin si no cambian el plazo ni la fecha del contrato
+                    # (las de Servitotal en días, por ejemplo, terminan a los 30 días aunque ahora digan «1 mes»).
+                    if inicio and (not actual.get("fin_garantia") or any(
+                            str(d.get(clave, actual.get(clave))) != str(actual.get(clave))
+                            for clave in ("meses_garantia", "fecha_contrato"))):
                         acuerdo = dict(actual, **d)
                         try:
                             fin = vencimiento_garantia(origen_garantia(acuerdo, inicio), acuerdo)
@@ -3914,7 +4859,7 @@ class PaginaComisiones(PaginaEnlaces):
         else:
             estado = "Por cobrar"
         return [c["id"], self.nombre(c, "cliente"), self.nombre(c, "trabajadora"),
-                dinero_corto(c["sueldo_acordado"]), f"{c['porcentaje'] or '-'}%",
+                dinero_corto(normalizar_sueldo(c["sueldo_acordado"])), f"{c['porcentaje'] or '-'}%",
                 dinero(c["comision"]) if c["comision"] else "-", estado]
 
     def etiqueta(self, c):
@@ -3992,6 +4937,7 @@ class PaginaComisiones(PaginaEnlaces):
                              actual["sueldo_acordado"])
         if sueldo is None:
             return False
+        sueldo = normalizar_sueldo(sueldo)                     # «1.500» es mil quinientos
         porcentaje = pedir_texto(
             self, "Porcentaje", "Comisión como porcentaje del sueldo (por ejemplo 20).\n"
             "Déjelo vacío para escribir el monto directamente:", porcentaje_de(actual["comision"], sueldo))
@@ -4021,7 +4967,7 @@ class PaginaComisiones(PaginaEnlaces):
 
 class PaginaGarantias(PaginaEnlaces):
     titulo_pagina = "Garantías"
-    subtitulo = "El plazo acordado en días o meses, con cambio de personal sin costo"
+    subtitulo = "Los meses que acordó cada cliente, desde la fecha del contrato, con cambio de personal sin costo"
     mostrar_encabezado = False
     mostrar_cantidad_pestanas = False
     filtros = [("pendientes", "Pendientes"), ("cerradas", "Cerradas"), ("sin_garantia", "Sin garantía")]
@@ -4056,7 +5002,7 @@ class PaginaGarantias(PaginaEnlaces):
 
     def valores(self, c):
         return [c["id"], self.nombre(c, "cliente"), self.nombre(c, "trabajadora"),
-                texto_plazo_garantia(c) if con_garantia(c) else "-",
+                texto_meses(meses_de_garantia(c)) if con_garantia(c) else "-",
                 c["fecha_inicio"] or "-", c["fin_garantia"] or "-", self.situacion(c)[0]]
 
     def etiqueta(self, c):
@@ -4286,23 +5232,25 @@ class PaginaGanancias(ttk.Frame):
 # ---------------------------------------------------------------- Aplicación
 class ItemMenu(tk.Frame):
     """Opción del menú lateral."""
+    RELLENO = 11    # espacio arriba y abajo del texto; la barra lo reduce si la pantalla es baja
 
     def __init__(self, master, texto, comando):
         super().__init__(master, bg=C["lateral"], cursor="hand2", takefocus=1,
                          highlightthickness=1, highlightbackground=C["lateral"],
                          highlightcolor=C["acento"])
         self.activo = False
+        self.comando = comando
         self.marcador = tk.Frame(self, bg=C["lateral"], width=3)
         self.marcador.pack(side="left", fill="y")
         self.etiqueta = tk.Label(self, text=texto, bg=C["lateral"], fg=C["texto2"],
                                  font=F["base"], anchor="w")
-        self.etiqueta.pack(side="left", fill="x", expand=True, padx=(15, 8), pady=11)
+        self.etiqueta.pack(side="left", fill="x", expand=True, padx=(15, 8), pady=self.RELLENO)
         for w in (self, self.marcador, self.etiqueta):
-            w.bind("<Button-1>", lambda e: (self.focus_set(), comando()))
+            w.bind("<Button-1>", lambda e: (self.focus_set(), self.comando()))
             w.bind("<Enter>", lambda e: self._pintar())
             w.bind("<Leave>", lambda e: self.after(10, self._pintar))
-        self.bind("<Return>", lambda e: comando())
-        self.bind("<space>", lambda e: comando())
+        self.bind("<Return>", lambda e: self.comando())
+        self.bind("<space>", lambda e: self.comando())
         self.bind("<FocusIn>", lambda e: self._pintar())
         self.bind("<FocusOut>", lambda e: self._pintar())
 
@@ -4324,38 +5272,66 @@ class ItemMenu(tk.Frame):
 
 class BarraLateral(tk.Frame):
     def __init__(self, master):
-        super().__init__(master, bg=C["lateral"], width=238)
+        factor = escala_pantalla(master)
+        super().__init__(master, bg=C["lateral"], width=round(238 * factor))
         self.pack_propagate(False)
         self.items = {}
         self.grupo_actual = None
 
-        # Logo original de Servitotal, sobre su propio fondo de marca.
+        # El logo conserva su fondo celeste dentro de un bloque de marca compacto.
         marca = tk.Frame(self, bg=C["activo"], highlightthickness=1,
                          highlightbackground=C["borde"])
         marca.pack(fill="x", padx=16, pady=(20, 22))
         identidad = tk.Frame(marca, bg=C["activo"])
         identidad.pack(fill="x", padx=13, pady=(14, 10))
         try:
-            self.logo = tk.PhotoImage(file=LOGO_PATH)
-            factor = max(1, math.ceil(max(self.logo.width(), self.logo.height()) / 64))
-            self.logo = self.logo.subsample(factor, factor)
+            self.logo = tk.PhotoImage(file=LOGO_PATH).subsample(3, 3)
             tk.Label(identidad, image=self.logo, bg=C["logo_fondo"],
                      padx=4, pady=4).pack(side="left")
         except tk.TclError:
             self.logo = None
         tk.Label(identidad, text=AGENCIA_NOMBRE, bg=C["activo"], fg=C["texto"],
-                 font=F["marca"], anchor="w", justify="left", wraplength=122).pack(
+                 font=F["marca"], anchor="w", justify="left", wraplength=round(122 * factor)).pack(
                      side="left", padx=(10, 0))
         tk.Frame(marca, bg=C["borde"], height=1).pack(fill="x", padx=13)
         tk.Label(marca, text=AGENCIA_ESLOGAN, bg=C["activo"], fg=C["acento"],
                  font=F["pequena"], anchor="w").pack(fill="x", padx=13, pady=(9, 12))
 
+        # La versión, para saber qué programa tiene cada equipo (por ejemplo al pedir ayuda por teléfono)
+        self.version = tk.Label(self, text=f"Versión {VERSION}", bg=C["lateral"], fg=C["tenue"],
+                                font=F["pequena"], anchor="w")
+        self.version.pack(side="bottom", fill="x", padx=27, pady=(0, 14))
         self.menu = tk.Frame(self, bg=C["lateral"])
         self.menu.pack(fill="x", padx=11)
+        # En pantallas bajas (portátiles de 1366x768) el menú completo puede no entrar: las opciones se acercan lo justo.
+        self.relleno = ItemMenu.RELLENO
+        self._ajuste_pendiente = False
+        self.bind("<Configure>", self._programar_ajuste, add="+")
+
+    def _programar_ajuste(self, evento=None):
+        if not self._ajuste_pendiente:   # una sola medición por cambio, con las posiciones ya calculadas
+            self._ajuste_pendiente = True
+            self.after_idle(self.ajustar_alto)
+
+    def ajustar_alto(self):
+        """Reduce el espacio de cada opción solo si el menú no entra entre la marca y la versión."""
+        self._ajuste_pendiente = False
+        items = list(self.items.values())
+        if not items:
+            return
+        self.update_idletasks()     # el alto pedido por el menú se recalcula en tareas pendientes
+        disponible = self.version.winfo_y() - self.menu.winfo_y()
+        natural = self.menu.winfo_reqheight() + 2 * len(items) * (ItemMenu.RELLENO - self.relleno)
+        sobra = disponible - natural
+        relleno = ItemMenu.RELLENO if sobra >= 0 else max(2, ItemMenu.RELLENO + sobra // (2 * len(items)))
+        if relleno != self.relleno:
+            self.relleno = relleno
+            for item in items:
+                item.etiqueta.pack_configure(pady=relleno)
 
     def agregar(self, pagina, texto, comando):
         grupos = {"Clientes": "PERSONAS", "Trabajadoras": "PERSONAS",
-                  "Áreas": "ASIGNACIONES", "Comisiones": "FINANZAS",
+                  "Áreas": "ASIGNACIONES", "Contratos": "ASIGNACIONES", "Comisiones": "FINANZAS",
                   "Ganancias": "FINANZAS", "Garantías": "SEGUIMIENTO"}
         grupo = grupos.get(texto, "NAVEGACIÓN")
         if grupo != self.grupo_actual:
@@ -4390,58 +5366,6 @@ def ultima_copia_externa(carpeta):
     return datetime.fromtimestamp(max(fechas)) if fechas else None
 
 
-def carpeta_escritorio():
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            ruta = ctypes.create_unicode_buffer(260)
-            if ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, ruta) == 0 and ruta.value:
-                return ruta.value
-        except Exception:
-            pass
-    return os.path.join(os.path.expanduser("~"), "Desktop")
-
-
-def traer_datos_de_archivo(app, parent, carpeta_inicial=None):
-    """Elige a mano un agencia.db (la versión anterior, un USB o una copia enviada) y trae sus datos, guardando
-    antes una copia de lo que hay. True si se trajeron."""
-    from tkinter import filedialog
-    ruta = filedialog.askopenfilename(
-        parent=parent, title="Elija el archivo agencia.db de la versión anterior (o una copia .db)",
-        initialdir=carpeta_inicial or carpeta_documentos(),
-        filetypes=[("Datos de la agencia", "*.db"), ("Todos los archivos", "*.*")])
-    if not ruta:
-        return False
-    ruta = os.path.normpath(ruta)
-    datos = contar_datos(ruta)
-    if datos is None or misma_ruta(ruta, DB_PATH):
-        messagebox.showerror(
-            "Archivo no válido",
-            "Ese archivo no contiene datos de la agencia que se puedan leer, o es la base que ya está abierta."
-            "\n\nElija el archivo agencia.db de la carpeta de la versión anterior o una copia de seguridad.",
-            parent=parent)
-        return False
-    if identidad_de_base(ruta) == "ajena" and not messagebox.askyesno(
-            "Datos de otro programa",
-            f"Este archivo parece ser de otro programa o de otra agencia, no de {AGENCIA_ESLOGAN}:\n\n{ruta}\n\n"
-            "¿Desea traerlo de todos modos?", default="no", parent=parent):
-        return False
-    try:
-        fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
-    except (OSError, ValueError, OverflowError):
-        fecha = datetime.now()
-    copia = {"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Otra carpeta", "donde": os.path.dirname(ruta),
-             "fecha": fecha, **datos}
-    try:
-        traida = app.restaurar_copia(copia)
-    except (sqlite3.Error, OSError, ValueError) as error:
-        messagebox.showerror("No se pudieron traer los datos", f"{error}\n\nNo se modificó nada.", parent=parent)
-        return False
-    if traida:
-        messagebox.showinfo("Datos traídos", "Listo: los datos de ese archivo ya están en el programa.", parent=parent)
-    return traida
-
-
 class DialogoCopias(tk.Toplevel):
     """Estado de las copias de seguridad, hacer una ahora, elegir una carpeta adicional y restaurar."""
 
@@ -4456,9 +5380,10 @@ class DialogoCopias(tk.Toplevel):
         cont.pack(fill="both", expand=True)
         ttk.Label(cont, text="Copias de seguridad", style="Detalle.TLabel").pack(anchor="w")
         ttk.Label(cont, style="Tenue.TLabel", wraplength=900, justify="left", text=(
-            "Sus datos se copian solos: al abrir el programa, cada 10 minutos si hubo cambios, al cerrarlo y antes "
-            "de borrar algo. Cada copia se verifica. Además se guarda una copia fuera de la carpeta del programa "
-            "(en Documentos) con los datos también en archivos que se abren con Excel.")).pack(anchor="w", pady=(4, 14))
+            f"Sus datos se copian solos: al abrir el programa, cada {COPIA_CADA_MS // 3_600_000} horas si hubo "
+            "cambios, al cerrarlo y antes de borrar algo. Cada copia se verifica. Además se guarda una copia fuera de "
+            "la carpeta del programa (en Documentos) con los datos también en archivos que se abren con Excel.")
+                  ).pack(anchor="w", pady=(4, 14))
         self.estado = ttk.Label(cont, justify="left", wraplength=900)
         self.estado.pack(anchor="w")
         fila = ttk.Frame(cont)
@@ -4472,15 +5397,17 @@ class DialogoCopias(tk.Toplevel):
         self.btn_quitar.pack(side="left")
         ttk.Button(fila, text="Abrir carpeta de copias", style="Accion.TButton",
                    command=lambda: abrir_carpeta(CARPETA_RESPALDOS)).pack(side="right")
-        ttk.Button(fila, text="Traer datos de otra carpeta…", style="Accion.TButton",
-                   command=self.traer_de_archivo).pack(side="right", padx=8)
         ttk.Label(cont, text="COPIAS DISPONIBLES", style="Seccion.TLabel").pack(anchor="w", pady=(4, 8))
         marco, self.lista = crear_tabla(cont, [
             ("fecha", "Fecha", 160), ("tipo", "Tipo", 160), ("donde", "Dónde", 110),
             ("clientes", "Clientes", 90), ("trab", "Trabajadoras", 120), ("asig", "Asignaciones", 120)])
         marco.pack(fill="both", expand=True)
         pie = ttk.Frame(cont)
-        pie.pack(fill="x", pady=(14, 0))
+        # Antes que la lista en el orden de empaque: con poco espacio (pantalla chica o escala 125-150 %) se
+        # achica la lista y los botones de abajo siguen visibles.
+        pie.pack(side="bottom", fill="x", pady=(14, 0), before=marco)
+        ttk.Button(pie, text="Traer datos de otro archivo…", style="Accion.TButton",
+                   command=self.traer_de_archivo).pack(side="left")
         ttk.Button(pie, text="Cerrar", style="Secundario.TButton", command=self.destroy).pack(side="right")
         self.btn_restaurar = ttk.Button(pie, text="Restaurar la copia elegida", style="Peligro.TButton",
                                         command=self.restaurar, state="disabled")
@@ -4501,14 +5428,17 @@ class DialogoCopias(tk.Toplevel):
                 c["colocaciones"])])
         lineas = [f"Última copia: {self.copias[0]['fecha']:%d/%m/%Y a las %H:%M}" if self.copias
                   else "Todavía no hay copias: se harán en cuanto haya datos."]
+        adicional = carpeta_adicional_elegida()
         for i, carpeta in enumerate(externas):
             ultima = ultima_copia_externa(carpeta)
             marca = f"✓ al {ultima:%d/%m/%Y %H:%M}" if ultima else "✗ todavía sin copia"
             lineas.append(f"{'Copia en Documentos' if i == 0 else 'Carpeta adicional'}: {carpeta}   {marca}")
-        if len(externas) == 1:
+        if not adicional:
             lineas.append("Carpeta adicional: ninguna. Se recomienda una (un USB o una carpeta de OneDrive o Google Drive).")
+        elif adicional not in externas:
+            lineas.append(f"Carpeta adicional: {adicional}   ✗ no está conectada: se copiará cuando lo esté")
         self.estado.configure(text="\n".join(lineas))
-        self.btn_quitar.state(["!disabled"] if len(externas) > 1 else ["disabled"])
+        self.btn_quitar.state(["!disabled"] if adicional else ["disabled"])
         self.btn_restaurar.state(["disabled"])
 
     def informar(self, resultado):
@@ -4517,6 +5447,9 @@ class DialogoCopias(tk.Toplevel):
         else:
             texto = "Copia hecha y verificada ✓\n\nEn el programa: " + os.path.basename(resultado["archivo"] or "-")
             texto += "".join(f"\nFuera del programa: {c} ✓" for c in resultado["externas"])
+            adicional = carpeta_adicional_elegida()
+            if adicional and adicional not in resultado["externas"]:
+                texto += f"\n\nLa carpeta adicional no está conectada: {adicional}"
             if resultado["errores"]:
                 texto += "\n\nProblemas:\n" + "\n".join(resultado["errores"])
             messagebox.showinfo("Copia de seguridad", texto, parent=self)
@@ -4531,8 +5464,38 @@ class DialogoCopias(tk.Toplevel):
                                        title="Elija la carpeta (por ejemplo un USB o una carpeta de OneDrive)")
         if not ruta:
             return
+        try:
+            marcar_carpeta_adicional(ruta)       # así se reconoce después, y no se usa otro USB que tome su letra
+        except OSError as error:
+            messagebox.showwarning("Carpeta adicional", f"No se puede guardar copias en esa carpeta:\n\n{error}",
+                                   parent=self)
+            return
         guardar_configuracion({**leer_configuracion(), "copia_adicional": ruta})
         self.informar(self.app.hacer_copia("manual", avisar=False))
+
+    def traer_de_archivo(self):
+        """Traer los datos de una agencia.db elegida a mano (por ejemplo, la que usaba Iniciar.bat o Agencia.exe
+        en otra carpeta o en un USB). Se hace como cualquier restauración: con copia previa y verificada."""
+        from tkinter import filedialog
+        ruta = filedialog.askopenfilename(parent=self, title="Elija el archivo agencia.db con sus datos",
+                                          filetypes=[("Datos de la agencia", "*.db"), ("Todos los archivos", "*.*")])
+        if not ruta:
+            return
+        if misma_ruta(ruta, DB_PATH):
+            messagebox.showinfo("Traer datos", "Ese es el archivo que el programa ya está usando.", parent=self)
+            return
+        datos = contar_datos(ruta)
+        if not datos or not any(datos.values()):
+            messagebox.showwarning("Traer datos", "Ese archivo no tiene clientes, trabajadoras ni asignaciones "
+                                                  "de la agencia.", parent=self)
+            return
+        copia = {"ruta": ruta, "fecha": datetime.fromtimestamp(os.path.getmtime(ruta)), **datos}
+        if self.app.restaurar_copia(copia):
+            traida = traer_ajustes_anteriores(os.path.dirname(ruta))
+            messagebox.showinfo("Traer datos", "Listo: los datos de ese archivo ya están en el programa."
+                                + (f"\n\nLas copias seguirán guardándose también en: {traida}" if traida else ""),
+                                parent=self)
+        self.refrescar()
 
     def quitar_carpeta(self):
         guardar_configuracion({k: v for k, v in leer_configuracion().items() if k != "copia_adicional"})
@@ -4544,19 +5507,18 @@ class DialogoCopias(tk.Toplevel):
             messagebox.showinfo("Copia restaurada", "Listo: los datos de esa copia ya están en el programa.", parent=self)
             self.refrescar()
 
-    def traer_de_archivo(self):
-        """Trae los datos de un agencia.db elegido a mano: la versión anterior, un USB o una copia enviada."""
-        if traer_datos_de_archivo(self.app, self):
-            self.refrescar()
 
 class App:
     def __init__(self, root):
         self.root = root
-        root.title(f"{AGENCIA_NOMBRE} “{AGENCIA_ESLOGAN}”")
+        root.title(AGENCIA_NOMBRE)
         aplicar_tema(root)
         poner_icono(root)
         centrar(root, 1320, 820)  # tamaño al salir de maximizado
-        root.minsize(1100, 660)
+        factor = escala_pantalla(root)   # con la escala de Windows al 125 % o 150 % el mínimo crece igual que el texto
+        _, _, ancho_util, alto_util = area_de_trabajo(root)     # sin pasar debajo de la barra de tareas al maximizar
+        root.minsize(min(round(1100 * factor), ancho_util - 20),
+                     min(round(660 * factor), alto_util - _marco_de_ventana(root)))
         maximizar(root)
         # F11: pantalla completa total (sin barra de título). Esc: salir de ella.
         root.bind("<F11>", lambda e: root.attributes(
@@ -4570,8 +5532,6 @@ class App:
         self._copiando = False            # hay una copia en segundo plano en marcha
         self._errores_avisados = set()    # problemas de copia ya mostrados: se avisa una sola vez
         self._reemplazos = (-1, {})  # (versión de la base, cálculo) para no repetirlo
-        self._origen_asignaciones = None
-        self._area_asignaciones = None
 
         self.lateral = BarraLateral(root)
         self.lateral.pack(side="left", fill="y")
@@ -4590,8 +5550,7 @@ class App:
         self.garantias = PaginaGarantias(contenido, self)
         self.enlazar = PaginaEnlazar(contenido, self)  # se abre desde un área
         self.enlazar.grid(row=0, column=0, sticky="nsew")
-        self.contratos.grid(row=0, column=0, sticky="nsew")  # vista interna de Áreas
-        self.menu = (self.clientes, self.trabajadoras, self.areas,
+        self.menu = (self.clientes, self.trabajadoras, self.areas, self.contratos,
                      self.comisiones, self.ganancias, self.garantias)
         for pagina in self.menu:
             pagina.grid(row=0, column=0, sticky="nsew")
@@ -4603,6 +5562,7 @@ class App:
         self.vigilar_cambios()
         atajo = "Command" if sys.platform == "darwin" else "Control"     # las copias se manejan solas; esto es solo para restaurar
         root.bind_all(f"<{atajo}-Shift-Key-B>", lambda e: self.abrir_copias())
+        root.bind_all(f"<{atajo}-Shift-Key-b>", lambda e: self.abrir_copias())   # con Bloq Mayús activado
         self.cargar_borradores()
         root.protocol("WM_DELETE_WINDOW", self.cerrar)         # al cerrar: avisar de lo no guardado y hacer una copia
         if sys.platform == "darwin":                            # Cmd+Q también debe pasar por el mismo cuidado
@@ -4641,7 +5601,8 @@ class App:
                 respuestas.put(respaldar(motivo))
             except BaseException as error:       # nada debe perderse en silencio dentro de un hilo
                 respuestas.put(error)
-        threading.Thread(target=trabajo, name="copia-de-seguridad", daemon=True).start()
+        self._hilo_copia = threading.Thread(target=trabajo, name="copia-de-seguridad", daemon=True)
+        self._hilo_copia.start()
         self.root.after(80, lambda: self._recoger_copia(respuestas, version))
 
     def _recoger_copia(self, respuestas, version):
@@ -4699,6 +5660,11 @@ class App:
             if pagina.resolver_cambios() is False:
                 return
         try:
+            hilo = getattr(self, "_hilo_copia", None)
+            if hilo is not None and hilo.is_alive():
+                # Una copia en segundo plano a medias (p. ej. la del arranque): terminarla antes de salir, para no
+                # dejar archivos temporales ni una copia externa sin sus datos legibles.
+                hilo.join(timeout=120)
             if self.db.version != self._version_copiada:
                 self.hacer_copia("auto")
         finally:
@@ -4741,11 +5707,11 @@ class App:
                 pagina.borrador = {k: str(v) for k, v in borrador.items() if k in pagina.form.tipos}
                 pagina.nuevo()
 
-    def restaurar_copia(self, copia, titulo="Restaurar copia", pregunta=None):
+    def restaurar_copia(self, copia):
         """Reemplaza los datos por los de una copia, guardando antes lo que hay ahora. True si se restauró."""
         ahora = contar_datos(DB_PATH) or {t: 0 for t in TABLAS}
         if not messagebox.askyesno(
-                titulo, pregunta or
+                "Restaurar copia",
                 f"¿Restaurar la copia del {copia['fecha']:%d/%m/%Y a las %H:%M}?\n\n"
                 f"La copia tiene {copia['clientes']} clientes, {copia['trabajadoras']} trabajadoras y "
                 f"{copia['colocaciones']} asignaciones.\nAhora el programa tiene {ahora['clientes']} clientes, "
@@ -4753,7 +5719,7 @@ class App:
                 "Antes se guardará una copia de lo que hay ahora, así podrá volver atrás si se equivoca.",
                 parent=self.root):
             return False
-        with carpeta_temporal(prefix="servitotal-restauracion-") as carpeta:
+        with carpeta_temporal("agencia-restauracion-") as carpeta:
             fuente_segura = os.path.join(carpeta, "fuente.db")
             copiar_base(copia["ruta"], fuente_segura)
             for pagina in (self.clientes, self.trabajadoras):
@@ -4770,138 +5736,37 @@ class App:
         self.refrescar_todo()
         return True
 
-    def ofrecer_datos_al_abrir(self, copia):
-        """Con la ventana ya visible, busca en otro hilo los datos de la versión anterior (puede tardar unos
-        segundos) y después:
-        - si el programa está vacío, ofrece lo mejor entre esos datos y la copia de seguridad `copia`; si no hay
-          nada, pregunta una sola vez si tenía datos para elegirlos a mano;
-        - si ya tiene algo (p. ej. una prueba hecha con 1.7.1) y los datos anteriores tienen más registros, ofrece
-          traerlos una sola vez, guardando antes lo que hay."""
-        import queue
-        vacia = not hay_datos(DB_PATH)
-        revisada = bool(leer_configuracion().get("version_anterior_revisada"))
-        if not BUSCAR_VERSION_ANTERIOR or (not vacia and revisada):
-            if copia and vacia:
-                self.root.after(400, lambda: self.ofrecer_recuperacion(copia))
-            return
-        resultado = queue.Queue()
-
-        def buscar():
-            try:
-                # En segundo plano con la ventana ya abierta: un disco lento puede necesitar más tiempo.
-                resultado.put(buscar_base_anterior(aunque_haya_datos=True, segundos=20))
-            except BaseException:           # buscar es una ayuda: nunca debe dejar el programa esperando
-                resultado.put(None)
-
-        def recoger():
-            try:
-                anterior = resultado.get_nowait()
-            except queue.Empty:
-                self.root.after(100, recoger)
-                return
-            if not hay_datos(DB_PATH):
-                oferta = elegir_oferta(copia, anterior)
-                if oferta:
-                    self.ofrecer_recuperacion(oferta)
-                elif not revisada:
-                    self.preguntar_por_version_anterior()
-            elif anterior and not revisada:
-                self.ofrecer_version_anterior_mas_completa(anterior)
-
-        threading.Thread(target=buscar, name="busqueda-version-anterior", daemon=True).start()
-        self.root.after(400, recoger)
-
-    def marcar_version_anterior_revisada(self):
-        try:
-            guardar_configuracion({**leer_configuracion(), "version_anterior_revisada": True})
-        except OSError:
-            pass
-
-    def preguntar_por_version_anterior(self):
-        """No se encontró la base anterior: se pregunta una sola vez, para que pueda elegirla a mano."""
-        self.marcar_version_anterior_revisada()
-        if messagebox.askyesno(
-                TITULO_PREGUNTA_ANTERIOR,
-                f"¿Usaba antes otra versión de {AGENCIA_ESLOGAN} en esta computadora y quiere traer sus clientes "
-                "y trabajadoras?\n\nSi responde Sí, elija el archivo «agencia.db» de la carpeta del programa "
-                "anterior (suele estar en el Escritorio o en Descargas).\n\nSi es la primera vez que usa "
-                f"{AGENCIA_ESLOGAN}, responda No.", parent=self.root):
-            traer_datos_de_archivo(self, self.root, carpeta_escritorio())
-
-    def ofrecer_version_anterior_mas_completa(self, anterior):
-        """El programa ya tiene algo, pero la versión anterior tiene más registros: se ofrece una sola vez."""
-        ahora = contar_datos(DB_PATH)
-        if ahora is None or total_registros(anterior) <= total_registros(ahora):
-            return
-        self.marcar_version_anterior_revisada()
-        pregunta = (f"Este programa tiene {ahora['clientes']} clientes, {ahora['trabajadoras']} trabajadoras y "
-                    f"{ahora['colocaciones']} asignaciones, pero se encontraron más datos de la versión anterior "
-                    f"en:\n\n{anterior['ruta']}\n\nTienen {anterior['clientes']} clientes, "
-                    f"{anterior['trabajadoras']} trabajadoras y {anterior['colocaciones']} asignaciones (último "
-                    f"cambio: {anterior['fecha']:%d/%m/%Y a las %H:%M}).")
-        if anterior.get("ejemplos"):
-            pregunta += "\nÚltimos clientes: " + ", ".join(anterior["ejemplos"]) + "."
-        if anterior.get("agencia") != "propia":
-            pregunta += f"\n\nCompruebe que son los datos de {AGENCIA_ESLOGAN} y no los de otro programa."
-        pregunta += ("\n\n¿Desea traerlos? Lo que hay ahora se guardará antes en una copia de seguridad, por si "
-                     "lo necesita.")
-        try:
-            if self.restaurar_copia(anterior, "Traer los datos de la versión anterior", pregunta):
-                messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
-        except (sqlite3.Error, OSError, ValueError) as error:
-            messagebox.showerror("No se pudieron traer los datos", f"{error}\n\nNo se modificó nada.",
-                                 parent=self.root)
-
     def ofrecer_recuperacion(self, copia):
-        """El programa se abrió sin datos pero hay copias: ofrece recuperarlas. Si la persona dice que no y hay otra
-        opción (una copia de seguridad o los datos de la versión anterior), se ofrece esa."""
+        """El programa se abrió sin datos pero hay copias (o los datos de una versión anterior): ofrece traerlos."""
         if hay_datos(DB_PATH):      # mientras tanto se escribió algo (o la base estaba ocupada): no se toca nada
             return
-        atajo = "Cmd" if sys.platform == "darwin" else "Ctrl"
-        alternativa = copia.get("alternativa")
-        if copia.get("tipo") == "Versión anterior":
-            pregunta = (f"Este programa todavía no tiene datos, pero se encontraron los datos de la versión anterior "
-                        f"en:\n\n{copia['ruta']}\n\nTienen {copia['clientes']} clientes, {copia['trabajadoras']} "
-                        f"trabajadoras y {copia['colocaciones']} asignaciones (último cambio: "
-                        f"{copia['fecha']:%d/%m/%Y a las %H:%M}).")
-            if copia.get("ejemplos"):
-                pregunta += "\nÚltimos clientes: " + ", ".join(copia["ejemplos"]) + "."
-            if copia.get("agencia") != "propia":
-                pregunta += f"\n\nCompruebe que son los datos de {AGENCIA_ESLOGAN} y no los de otro programa."
-            if copia.get("otras"):
-                pregunta += ("\n\nTambién hay otros archivos agencia.db:\n" + "\n".join(copia["otras"][:3])
-                             + ("\n…" if len(copia["otras"]) > 3 else "")
-                             + f"\nPara elegir otro: {atajo}+Shift+B → «Traer datos de otra carpeta…».")
-            pregunta += "\n\n¿Desea traerlos ahora a esta versión? El archivo de la versión anterior no se modifica."
-            titulo = "Traer los datos de la versión anterior"
+        cantidades = (f"{copia['clientes']} clientes, {copia['trabajadoras']} trabajadoras y "
+                      f"{copia['colocaciones']} asignaciones")
+        if copia.get("anterior"):
+            titulo = "Traer sus datos"
+            pregunta = (f"Este programa no tiene datos, pero se encontraron los datos que usaba antes en:\n\n"
+                        f"{copia['ruta']}\n\n({cantidades}; último cambio el {copia['fecha']:%d/%m/%Y a las %H:%M}).\n\n"
+                        "¿Desea traerlos a esta instalación? El archivo original no se modifica.")
         else:
-            pregunta = (f"Este programa no tiene datos, pero se encontró una copia de seguridad del "
-                        f"{copia['fecha']:%d/%m/%Y a las %H:%M} ({copia['donde'].lower()}) con {copia['clientes']} "
-                        f"clientes, {copia['trabajadoras']} trabajadoras y {copia['colocaciones']} asignaciones.")
-            if alternativa:
-                pregunta += (f"\n\nTambién están los datos de la versión anterior en {alternativa['ruta']} "
-                             f"(último cambio: {alternativa['fecha']:%d/%m/%Y a las %H:%M}); si responde No, "
-                             "se le ofrecerán a continuación.")
-            pregunta += "\n\n¿Desea recuperarla ahora?"
             titulo = "Recuperar sus datos"
-        if not messagebox.askyesno(titulo, pregunta, parent=self.root):
-            if alternativa:
-                self.ofrecer_recuperacion({k: v for k, v in alternativa.items() if k != "alternativa"})
-            return
-        if hay_datos(DB_PATH):      # mientras la pregunta estaba abierta se registró algo: no se pisa
-            return
-        self.marcar_version_anterior_revisada()
-        self.hacer_copia("antes-de-restaurar", avisar=False)
-        try:
+            pregunta = (f"Este programa no tiene datos, pero se encontró una copia de seguridad del "
+                        f"{copia['fecha']:%d/%m/%Y a las %H:%M} ({copia['donde'].lower()}) con {cantidades}.\n\n"
+                        "¿Desea recuperarla ahora?")
+        if messagebox.askyesno(titulo, pregunta, parent=self.root):
+            self.hacer_copia("antes-de-restaurar", avisar=False)
             self.db.restaurar_desde(copia["ruta"])
-        except (sqlite3.Error, OSError, ValueError) as error:
-            messagebox.showerror(
-                "No se pudieron traer los datos",
-                f"{error}\n\nNo se modificó nada. Puede intentarlo desde Copias de seguridad "
-                f"({atajo}+Shift+B) con «Traer datos de otra carpeta…».", parent=self.root)
-            return
-        self.refrescar_todo()
-        messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
+            if copia.get("anterior"):
+                traer_ajustes_anteriores(os.path.dirname(copia["ruta"]))
+            self.refrescar_todo()
+            messagebox.showinfo("Datos recuperados", "Listo: sus datos ya están de vuelta.", parent=self.root)
+        elif copia.get("anterior"):
+            # No volver a preguntar por el mismo archivo (se puede traer después desde Ctrl+Shift+B).
+            try:
+                configuracion = leer_configuracion()
+                descartados = [d for d in configuracion.get("datos_anteriores_descartados") or [] if isinstance(d, str)]
+                guardar_configuracion({**configuracion, "datos_anteriores_descartados": descartados + [copia["ruta"]]})
+            except OSError:
+                pass
 
     def vigilar_cambios(self):
         """Cada 3 segundos revisa si otra copia abierta del programa cambió los datos."""
@@ -4923,8 +5788,8 @@ class App:
             self.refrescar_todo()
         self.refrescar_visible()
         pagina.tkraise()
-        # El selector y los contratos son vistas internas de «Áreas».
-        self.lateral.activar(self.areas if pagina in (self.enlazar, self.contratos) else pagina)
+        # El selector de un área es una vista interna de «Áreas».
+        self.lateral.activar(self.areas if pagina is self.enlazar else pagina)
 
     def registrar(self, tabla, tipo_servicio=None):
         """Abre el formulario de un cliente o trabajadora nuevo, con el área ya marcada."""
@@ -4940,11 +5805,8 @@ class App:
         self.por_refrescar.discard(self.enlazar)
         self.mostrar(self.enlazar)
 
-    def abrir_asignaciones(self, asignacion_id=None):
-        """Muestra los contratos dentro de Áreas, con la asignación nueva seleccionada."""
-        if self.visible is not self.contratos:
-            self._origen_asignaciones = self.visible
-            self._area_asignaciones = self.enlazar.filtro_area if self.visible is self.enlazar else None
+    def abrir_contratos(self, asignacion_id=None):
+        """Muestra «Contratos» con la asignación indicada seleccionada (por ejemplo, la recién creada)."""
         asignacion = self.db.uno("colocaciones", asignacion_id) if asignacion_id is not None else None
         filtro = "firmados" if asignacion and asignacion["contrato_firmado"] == "1" else "por_firmar"
         self.contratos.filtro = filtro
@@ -4956,12 +5818,6 @@ class App:
             self.contratos.lista.selection_set(str(asignacion_id))
             self.contratos.lista.see(str(asignacion_id))
             self.contratos.actualizar_info()
-
-    def volver_de_asignaciones(self):
-        if self._origen_asignaciones is self.enlazar:
-            self.abrir_area(self._area_asignaciones)
-        else:
-            self.mostrar(self.areas)
 
     def resumen_financiero(self, fecha_hoy=None):
         """Ganancias y Comisiones comparten el mismo cálculo hasta que cambian sus datos o el día."""
@@ -5138,6 +5994,24 @@ class App:
             self.db.actualizar("colocaciones", actual["id"], {"estado": "Garantía cumplida"})
             return True
 
+    def liberar_no_disponibles(self):
+        """«No disponible» solo se ponía a mano en la ficha, que ya no muestra el estado. Para que nadie quede fuera
+        de las asignaciones sin forma de volver, esa trabajadora pasa al estado que le dan sus asignaciones."""
+        if getattr(self, "_revision_no_disponibles", None) == self.db.revision("trabajadoras"):
+            return
+        marcadas = [t["id"] for t in self.db.todos("trabajadoras") if t["estado"] == "No disponible"]
+        if marcadas:
+            with self.cambio_de_estados():
+                for id_ in marcadas:
+                    actual = self._fila_actual("trabajadoras", id_)
+                    if not actual or actual["estado"] != "No disponible":
+                        continue
+                    if self._vinculos_ocupantes("trabajadoras", id_):
+                        self._reconciliar_persona("trabajadoras", id_)     # En proceso o Trabajando
+                    else:
+                        self.db.actualizar("trabajadoras", id_, {"estado": "Disponible"})
+        self._revision_no_disponibles = self.db.revision("trabajadoras")
+
     def iniciar_contratos_firmados(self):
         """Inicia en lote los contratos actuales; salta históricos o referencias no disponibles."""
         bloqueados = getattr(self, "_inicios_bloqueados", False)
@@ -5291,9 +6165,10 @@ class App:
         """Tras un cambio, redibuja la sección visible; las demás al abrirse."""
         self._dia_refresco = date.today()
         self.sincronizar_areas()
+        self.liberar_no_disponibles()       # antes de iniciar: un contrato firmado así ya puede empezar
         self.iniciar_contratos_firmados()
         self.cerrar_garantias_vencidas()
-        self.por_refrescar = set(self.menu) | {self.enlazar, self.contratos}
+        self.por_refrescar = set(self.menu) | {self.enlazar}
         self.refrescar_visible()
 
     def refrescar_visible(self):
@@ -5339,18 +6214,44 @@ CONFIG_PATH = os.path.join(CARPETA, "configuracion.json")
 
 
 def uri_sqlite(ruta):
-    """URI «file:» de un archivo local o de red. Sin resolve(): en Windows convierte una unidad de red (Z:) en su
-    ruta UNC, y SQLite rechaza «file://servidor/...»; con la autoridad vacía («file:////servidor/...») sí la abre."""
-    ruta = os.path.abspath(ruta)
-    if sys.platform == "win32" and ruta.startswith("\\\\") and not ruta.startswith("\\\\?\\"):
-        from urllib.parse import quote
-        return "file://" + quote(ruta.replace("\\", "/"), safe="/")
-    return Path(ruta).as_uri()
+    """URI «file:» que SQLite acepta para la ruta, también en unidades de red de Windows.
+
+    En Windows no se usa Path.resolve(): convierte una unidad asignada (Z:\\) en \\\\servidor\\recurso y as_uri()
+    daría «file://servidor/...», que SQLite rechaza («invalid uri authority»). Las rutas UNC se escriben con la
+    autoridad vacía (file:////servidor/recurso/...), la forma que SQLite admite."""
+    if sys.platform != "win32":
+        return Path(ruta).resolve().as_uri()
+    from urllib.parse import quote
+    ruta = os.path.abspath(os.fspath(ruta)).replace("\\", "/")
+    if ruta.startswith("//?/UNC/"):
+        ruta = "//" + ruta[8:]
+    elif ruta.startswith("//?/"):
+        ruta = ruta[4:]
+    if ruta.startswith("//"):
+        return "file:////" + quote(ruta[2:], safe="/:")
+    return "file:///" + quote(ruta, safe="/:")
 
 
 def conexion_lectura(ruta, timeout=1):
     """Abre un archivo existente sin crearlo ni permitir escrituras."""
     return sqlite3.connect(uri_sqlite(ruta) + "?mode=ro", uri=True, timeout=timeout)
+
+
+def reintentar_si_windows_bloquea(funcion, *argumentos, intentos=8, espera=0.1):
+    """Ejecuta os.replace/os.remove reintentando si Windows lo impide por un momento.
+
+    En Windows el antivirus, el indexador de búsqueda, OneDrive o una vista previa abren los archivos recién
+    escritos durante un instante, y mover o borrar uno en ese momento falla con «acceso denegado» (5) o
+    «archivo en uso» (32). En Mac y Linux no ocurre: allí se ejecuta una sola vez."""
+    import time
+    total = intentos if sys.platform == "win32" else 1
+    for intento in range(total):
+        try:
+            return funcion(*argumentos)
+        except PermissionError as error:
+            if intento >= total - 1 or getattr(error, "winerror", None) not in (5, 32, 33):
+                raise
+            time.sleep(espera * (intento + 1))
 
 
 def base_sana(ruta):
@@ -5432,31 +6333,32 @@ def _copiar_sqlite(fuente, destino, limite=30):
 
 
 @contextmanager
-def carpeta_temporal(**opciones):
-    """Carpeta de trabajo propia. En Windows un antivirus o el indexador pueden retener un archivo recién creado:
-    no poder borrar el temporal no debe convertir en error una operación que ya terminó bien."""
+def carpeta_temporal(prefix, dir=None):
+    """Carpeta temporal que se borra al terminar sin fallar si Windows retiene un archivo un instante (antivirus).
+    Equivale a TemporaryDirectory(ignore_cleanup_errors=True), que no existe antes de Python 3.10."""
     import shutil
     import tempfile
-    carpeta = tempfile.mkdtemp(**opciones)
+    ruta = tempfile.mkdtemp(prefix=prefix, dir=dir)
     try:
-        yield carpeta
+        yield ruta
     finally:
-        shutil.rmtree(carpeta, ignore_errors=True)
+        shutil.rmtree(ruta, ignore_errors=True)
 
 
 @contextmanager
-def archivo_atomico(ruta, encoding="utf-8", newline=None):
+def archivo_atomico(ruta, encoding="utf-8", newline=None, binario=False):
     """Un temporal exclusivo evita truncar archivos buenos y pisar otras escrituras."""
     import tempfile
     ruta = Path(ruta)
     descriptor, temporal = tempfile.mkstemp(prefix=ruta.name + ".", suffix=".tmp", dir=ruta.parent)
     try:
-        with os.fdopen(descriptor, "w", encoding=encoding, newline=newline) as archivo:
+        with (os.fdopen(descriptor, "wb") if binario
+              else os.fdopen(descriptor, "w", encoding=encoding, newline=newline)) as archivo:
             descriptor = None
             yield archivo
             archivo.flush()
             os.fsync(archivo.fileno())
-        os.replace(temporal, ruta)
+        reintentar_si_windows_bloquea(os.replace, temporal, ruta)
         temporal = None
     finally:
         if descriptor is not None:
@@ -5550,7 +6452,7 @@ def copiar_base(origen, destino):
         # Se conserva la comprobación usada por el diagnóstico y las pruebas de errores.
         if not base_sana(temporal) or contar_datos(temporal) is None:
             raise sqlite3.DatabaseError("La copia no pasó la verificación.")
-        os.replace(temporal, destino)
+        reintentar_si_windows_bloquea(os.replace, temporal, destino)
         temporal = None
     finally:
         fuente.close()
@@ -5611,12 +6513,60 @@ def guardar_configuracion(datos, ruta=None):
         json.dump(datos, archivo, ensure_ascii=False, indent=2)
 
 
+MARCA_COPIAS = ".copias-servitotal"   # archivo que identifica la carpeta adicional que se eligió para las copias
+
+
+def marcar_carpeta_adicional(carpeta):
+    with open(os.path.join(carpeta, MARCA_COPIAS), "w", encoding="utf-8") as archivo:
+        archivo.write(f"Carpeta elegida para las copias de seguridad de {AGENCIA_ESLOGAN}.\n")
+
+
+def carpeta_adicional_lista(carpeta):
+    """La carpeta adicional se usa solo si es la elegida: tiene la marca del programa o copias suyas de antes (y entonces
+    se marca). Así un USB ajeno que tome la misma letra no recibe los datos, y uno desconectado no se vuelve a crear."""
+    try:
+        if os.path.isfile(os.path.join(carpeta, MARCA_COPIAS)):
+            return True
+        if os.path.isdir(carpeta) and any(nombre.startswith(".copias-") for nombre in os.listdir(carpeta)):
+            return False     # la eligió el programa de otra agencia: sus copias no se tocan
+        if os.path.isdir(carpeta) and any(PATRON_EXTERNA.fullmatch(nombre) for nombre in os.listdir(carpeta)):
+            marcar_carpeta_adicional(carpeta)
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def carpeta_adicional_elegida(configuracion=None):
+    """La carpeta adicional que se eligió (USB, nube...), esté conectada o no; None si no hay."""
+    configuracion = leer_configuracion() if configuracion is None else configuracion
+    adicional = configuracion.get("copia_adicional") if isinstance(configuracion, dict) else None
+    return adicional if isinstance(adicional, str) and adicional.strip() else None
+
+
+def traer_ajustes_anteriores(carpeta):
+    """Al traer los datos de la versión portable (Iniciar.bat o Agencia.exe), también se trae la carpeta adicional de
+    copias que se había elegido allí, si aquí todavía no hay una: así esas copias no se interrumpen sin avisar.
+    Devuelve la carpeta traída, o None."""
+    if os.path.normcase(os.path.abspath(carpeta)) == os.path.normcase(os.path.abspath(CARPETA)):
+        return None
+    anterior = carpeta_adicional_elegida(leer_configuracion(os.path.join(carpeta, "configuracion.json")))
+    configuracion = leer_configuracion()
+    if not anterior or carpeta_adicional_elegida(configuracion):
+        return None
+    try:
+        guardar_configuracion({**configuracion, "copia_adicional": anterior})
+    except OSError:
+        return None
+    return anterior
+
+
 def carpetas_externas(configuracion=None):
-    """Carpetas fuera del programa donde se guarda una copia: Documentos y, si se eligió, otra (USB, nube...)."""
+    """Carpetas fuera del programa donde se guarda una copia: Documentos y, si está conectada, la adicional."""
     configuracion = leer_configuracion() if configuracion is None else configuracion
     carpetas = [os.path.join(carpeta_documentos(), f"Respaldos {AGENCIA_CARPETA_DATOS}")]
-    adicional = configuracion.get("copia_adicional") if isinstance(configuracion, dict) else None
-    if isinstance(adicional, str) and adicional.strip() and adicional not in carpetas:
+    adicional = carpeta_adicional_elegida(configuracion)
+    if adicional and adicional not in carpetas and carpeta_adicional_lista(adicional):
         carpetas.append(adicional)
     return carpetas
 
@@ -5648,8 +6598,22 @@ def _revertir_csvs(carpeta, resguardo, anteriores, nombres):
     return errores
 
 
+class CSVOcupados(OSError):
+    """Algún CSV de «Datos legibles» está abierto en otro programa y Windows no deja reemplazarlo."""
+
+    def __init__(self, nombres):
+        self.nombres = list(nombres)
+        super().__init__(
+            f"No se actualizó{'' if len(self.nombres) == 1 else 'n'} {', '.join(self.nombres)} en «Datos legibles» "
+            "porque está abierto en otro programa (por ejemplo Excel). Ciérrelo y se actualizará en la próxima "
+            "copia. La copia de seguridad de los datos sí se guardó.")
+
+
 def _publicar_csvs(preparados, carpeta, resguardo, nombres):
-    """Guarda los anteriores antes del primer reemplazo y revierte una publicación fallida."""
+    """Guarda los anteriores antes del primer reemplazo y revierte una publicación fallida.
+
+    En Windows, Excel no deja reemplazar un CSV que tiene abierto: ese archivo se conserva como estaba, los
+    demás se actualizan y al final se avisa con CSVOcupados (un mensaje que no cambia de una copia a otra)."""
     import shutil
     anteriores = []
     for nombre in nombres:
@@ -5662,19 +6626,24 @@ def _publicar_csvs(preparados, carpeta, resguardo, nombres):
                    "ausentes": [n for n in nombres if n not in anteriores]}, archivo, ensure_ascii=False, indent=2)
         archivo.flush()
         os.fsync(archivo.fileno())
-    publicados = []
+    publicados, ocupados, actual = [], [], None
     try:
         for nombre in nombres:
-            origen = os.path.join(preparados, nombre)
+            actual = nombre      # si falla a medias, este también se revierte
             try:
-                os.replace(origen, os.path.join(carpeta, nombre))
-            finally:
-                if not os.path.lexists(origen):   # ya se movió, aunque después fallara algo
-                    publicados.append(nombre)
+                # Excel retiene el archivo mientras esté abierto: basta un intento breve antes de dejarlo como estaba.
+                reintentar_si_windows_bloquea(os.replace, os.path.join(preparados, nombre), os.path.join(carpeta, nombre),
+                                              intentos=3)
+            except PermissionError:
+                if sys.platform != "win32":
+                    raise
+                ocupados.append(nombre)   # Windows no lo reemplazó: sigue el anterior, intacto
+            else:
+                publicados.append(nombre)
+            actual = None
     except BaseException as error:
         try:
-            # Sólo se revierte lo publicado: un CSV que Excel mantiene abierto sigue siendo el anterior y no se toca.
-            errores = _revertir_csvs(carpeta, resguardo, anteriores, publicados)
+            errores = _revertir_csvs(carpeta, resguardo, anteriores, publicados + ([actual] if actual else []))
         except BaseException as fallo:
             errores = [str(fallo)]
         if errores:
@@ -5685,6 +6654,21 @@ def _publicar_csvs(preparados, carpeta, resguardo, nombres):
             fallo._resguardo_csv = resguardo
             raise fallo from error
         raise
+    if ocupados:
+        raise CSVOcupados(ocupados)
+
+
+class _SinDocumento:
+    """Recorre las asignaciones cambiando el documento HTML del contrato por «Sí» (o vacío si no hay)."""
+
+    def __init__(self, cursor, posicion):
+        self.description, self._cursor, self._posicion = cursor.description, cursor, posicion
+
+    def __iter__(self):
+        for fila in self._cursor:
+            fila = list(fila)
+            fila[self._posicion] = "Sí" if fila[self._posicion] else ""
+            yield fila
 
 
 def exportar_legible(ruta, carpeta):
@@ -5708,6 +6692,12 @@ def exportar_legible(ruta, carpeta):
             for tabla, nombre in (("clientes", "Clientes"), ("trabajadoras", "Trabajadoras"),
                                   ("colocaciones", "Asignaciones"), ("areas", "Areas")):
                 cursor = con.execute(f"SELECT * FROM {tabla} ORDER BY id") if tabla in tablas else None
+                if cursor is not None and tabla == "colocaciones":
+                    # contrato_html guarda el documento firmado completo (decenas de miles de caracteres): no cabe en
+                    # una celda de Excel. Queda en la copia .db; en el CSV solo se indica si existe.
+                    columnas = [columna[0] for columna in cursor.description]
+                    if "contrato_html" in columnas:
+                        cursor = _SinDocumento(cursor, columnas.index("contrato_html"))
                 cabeceras = ([columna[0] for columna in cursor.description] if cursor is not None else
                              ["id", "nombre", "titulo", "descripcion"] if tabla == "areas" else ["id"] + claves(TABLAS[tabla]))
                 nombre += ".csv"
@@ -5731,13 +6721,9 @@ def exportar_legible(ruta, carpeta):
             shutil.rmtree(temporal, ignore_errors=True)
 
 
-class CsvEnUso(OSError):
-    """La copia .db quedó guardada, pero un CSV de «Datos legibles» está abierto (p. ej. en Excel) y Windows no
-    permite reemplazarlo. Se conservan los CSV anteriores; el aviso no cambia de una copia a otra."""
-
-
 def copia_externa(ruta, carpeta, ahora=None):
-    """Una copia por día (se renueva durante el día) más los datos legibles, en una carpeta fuera del programa."""
+    """Una copia por día (se renueva durante el día) más los datos legibles, en una carpeta fuera del programa.
+    Devuelve un aviso si algún CSV no pudo actualizarse porque estaba abierto; None si todo quedó al día."""
     ahora = ahora or datetime.now()
     os.makedirs(carpeta, exist_ok=True)
     with cerrojo_carpeta(carpeta):
@@ -5746,13 +6732,13 @@ def copia_externa(ruta, carpeta, ahora=None):
         diarias = sorted(n for n in os.listdir(carpeta) if PATRON_EXTERNA.fullmatch(n))
         for vieja in diarias[:-DIAS_EXTERNAS]:
             try:
-                os.remove(os.path.join(carpeta, vieja))
-            except FileNotFoundError:
-                pass
+                reintentar_si_windows_bloquea(os.remove, os.path.join(carpeta, vieja))
+            except OSError:
+                pass   # abierta en otro programa o sincronizándose: se borrará en la próxima copia
         leame = os.path.join(carpeta, "LEEME.txt")
         if not os.path.exists(leame):
             with archivo_atomico(leame) as archivo:
-                archivo.write(f"Copias de seguridad de {AGENCIA_NOMBRE}\n\n"
+                archivo.write(f"Copias de seguridad de {AGENCIA_ESLOGAN}\n\n"
                               "agencia-AAAAMMDD.db   copia de todos los datos de ese día.\n"
                               "Datos legibles        los mismos datos en archivos .csv (se abren con Excel).\n\n"
                               "Los textos que podrían interpretarse como fórmulas llevan un apóstrofo protector.\n"
@@ -5760,10 +6746,9 @@ def copia_externa(ruta, carpeta, ahora=None):
                               "No borre esta carpeta: es su respaldo si algo le pasa a la computadora.\n")
         try:
             exportar_legible(destino, os.path.join(carpeta, "Datos legibles"))
-        except PermissionError as error:
-            raise CsvEnUso("la copia de la base se guardó, pero los archivos de Excel de «Datos legibles» no se "
-                           "actualizaron porque uno está abierto en otro programa. Ciérrelo y se actualizarán en "
-                           "la próxima copia.") from error
+        except CSVOcupados as aviso:
+            return str(aviso)     # la copia .db está hecha; solo quedó algún CSV sin actualizar
+    return None
 
 
 def nombre_copia(motivo, ahora):
@@ -5807,9 +6792,9 @@ def podar_respaldos(carpeta, ahora=None):
         borrar += [nombre for _, nombre in sorted(grupos[tipo])[:-limite]]
     for nombre in borrar:
         try:
-            os.remove(os.path.join(carpeta, nombre))
-        except FileNotFoundError:
-            pass
+            reintentar_si_windows_bloquea(os.remove, os.path.join(carpeta, nombre))
+        except OSError:
+            pass   # abierta en otro programa (p. ej. la lista de copias): se borrará en la próxima copia
 
 
 def respaldar(motivo="auto", ruta=None, carpeta=None, externas=None, ahora=None):
@@ -5840,15 +6825,10 @@ def respaldar(motivo="auto", ruta=None, carpeta=None, externas=None, ahora=None)
             resultado["errores"].append(f"Copia en la carpeta del programa: {error}")
         for externa in (carpetas_externas() if externas is None else externas):
             try:
-                copia_externa(ruta, externa, ahora)
+                aviso = copia_externa(ruta, externa, ahora)
                 resultado["externas"].append(externa)
-            except CsvEnUso as error:
-                resultado["externas"].append(externa)     # la copia .db de ese día sí quedó guardada
-                resultado["errores"].append(f"Copia en «{externa}»: {error}")
-            except PermissionError:
-                resultado["errores"].append(
-                    f"Windows no permitió guardar la copia en «{externa}» (puede estar activada la protección contra "
-                    "ransomware de Seguridad de Windows). Sus datos y la copia dentro del programa sí se guardaron.")
+                if aviso:
+                    resultado["errores"].append(f"Copia en «{externa}»: {aviso}")
             except (OSError, sqlite3.Error) as error:
                 resultado["errores"].append(f"Copia en «{externa}»: {error}")
     return resultado
@@ -5907,9 +6887,9 @@ def _iterar_copias(carpetas):
                         continue
                     try:
                         if entrada.is_file():
-                            estado = entrada.stat()
-                            if not estado.st_ino:   # Windows no rellena el identificador en scandir
-                                estado = os.stat(entrada.path)
+                            # En Windows, DirEntry.stat() deja st_ino y st_dev en cero: la firma no coincidiría
+                            # con la de os.stat() y los recuentos nunca se reutilizarían.
+                            estado = os.stat(entrada.path) if ES_WINDOWS else entrada.stat()
                             archivos.append((estado, entrada.path, nombre, donde))
                     except OSError:
                         continue
@@ -5940,182 +6920,95 @@ def buscar_restauracion(ruta=None, carpetas=None):
     return next((c for c in _iterar_copias(carpetas) if any(c[t] for t in TABLAS) or hay_datos(c["ruta"])), None)
 
 
-def carpetas_personales():
-    """Escritorio, Documentos y Descargas del usuario (aunque estén en OneDrive) y su carpeta personal: donde
-    suele quedar la carpeta de una versión anterior con su agencia.db."""
-    casa = os.path.expanduser("~")
-    carpetas = []
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            for codigo in (0x10, 5):   # Escritorio y Documentos, con su ubicación real
-                ruta = ctypes.create_unicode_buffer(260)
-                if ctypes.windll.shell32.SHGetFolderPathW(None, codigo, None, 0, ruta) == 0 and ruta.value:
-                    carpetas.append(ruta.value)
-        except Exception:
-            pass
-    bases = [casa] + [os.environ[v] for v in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial")
-                      if os.environ.get(v)]
-    for base in bases:
-        for nombre in ("Desktop", "Escritorio", "Documents", "Documentos", "Downloads", "Descargas"):
-            carpetas.append(os.path.join(base, nombre))
-    carpetas += bases
-    carpetas.append(CARPETA)      # «Recuperado de la instalación anterior» y similares, dentro de los datos
-    unicas = []
-    for carpeta in carpetas:
+# Carpetas que nunca contienen los datos de una versión anterior: se saltan al buscarlos.
+_CARPETAS_SIN_DATOS = {"appdata", "application data", "library", "node_modules", "__pycache__", "$recycle.bin",
+                       "windows", "program files", "program files (x86)", "programdata", "system volume information",
+                       "respaldos", "contratos", "datos legibles"}
+
+
+def lugares_datos_anteriores(casa=None):
+    """(carpeta, profundidad) donde una versión anterior pudo dejar agencia.db junto al programa (Iniciar.bat o
+    Agencia.exe guardaban los datos en su propia carpeta): Escritorio, Documentos, Descargas, OneDrive y la
+    carpeta personal; en Windows también las carpetas de primer nivel del disco del sistema (C:\\Agencia...)."""
+    casa = os.path.expanduser("~") if casa is None else casa
+    lugares = [(casa, 1)] + [(os.path.join(casa, nombre), 4) for nombre in (
+        "Desktop", "Escritorio", "Documents", "Documentos", "Downloads", "Descargas", "OneDrive")]
+    if ES_WINDOWS and casa == os.path.expanduser("~"):
+        lugares += [(carpeta_documentos(), 4), (os.path.join(os.environ.get("SystemDrive", "C:"), os.sep), 2)]
+    vistos, unicos = set(), []
+    for carpeta, profundidad in lugares:
         clave = os.path.normcase(os.path.abspath(carpeta))
-        if os.path.isdir(carpeta) and clave not in {os.path.normcase(os.path.abspath(c)) for c in unicas}:
-            unicas.append(carpeta)
-    return unicas
+        if clave not in vistos and os.path.isdir(carpeta):
+            vistos.add(clave)
+            unicos.append((carpeta, profundidad))
+    return unicos
 
 
-# La versión anterior sólo se usó en Windows. En Mac, recorrer Escritorio, Documentos y Descargas haría que macOS
-# pidiera permisos al abrir; allí se traen con «Traer datos de otra carpeta…».
-BUSCAR_VERSION_ANTERIOR = sys.platform == "win32"
-_SIN_BUSCAR = {"appdata", "application data", "library", "node_modules", "site-packages", "__pycache__",
-               "$recycle.bin", "windows", "program files", "program files (x86)", "respaldos", "programdata",
-               "users", "usuarios", "system volume information", "recovery", "perflogs", "windows.old"}
-
-
-def unidades_locales():
-    """Windows: raíz de cada disco fijo (C:\\, D:\\…), donde a veces se dejaba la carpeta del programa."""
-    if sys.platform != "win32":
-        return []
+def _de_otra_agencia(ruta):
+    """True si junto a esa base está el programa de otra agencia (su agencia.py tiene otro AGENCIA_ESLOGAN)."""
     try:
-        import ctypes
-        mascara = ctypes.windll.kernel32.GetLogicalDrives()
-        raices = [f"{chr(65 + i)}:\\" for i in range(26) if mascara >> i & 1]
-        return [r for r in raices if ctypes.windll.kernel32.GetDriveTypeW(r) == 3]   # 3 = disco fijo
-    except Exception:
-        return []
+        texto = Path(ruta).with_name("agencia.py").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    eslogan = re.search(r'^AGENCIA_ESLOGAN = "([^"]*)"', texto, re.M)
+    return bool(eslogan) and eslogan.group(1) != AGENCIA_ESLOGAN
 
 
-def buscar_bases_anteriores(carpetas=None, actual=None, profundidad=3, limite_carpetas=3000, segundos=4.0):
-    """Bases «agencia.db» de otra carpeta (la versión anterior guardaba sus datos junto al programa).
-    Recorre poco y con límite de tiempo: nunca demora la apertura. Devuelve copias con datos, la más nueva primero."""
+def buscar_datos_anteriores(lugares=None, excluir=(), limite=2.0):
+    """La agencia.db con datos más reciente que dejó una versión anterior junto al programa, lista para ofrecerla
+    como una copia (con «anterior»: True); None si no hay. Solo lee, y con límite de tiempo para no demorar la
+    apertura del programa."""
     import time
-    actual = DB_PATH if actual is None else actual
-    if carpetas is None:    # primero las carpetas personales; luego la raíz de cada disco, menos a fondo
-        pendientes = [(c, 0, profundidad) for c in carpetas_personales()]
-        pendientes += [(u, 0, 2) for u in unidades_locales()]
-    else:
-        pendientes = [(c, 0, profundidad) for c in carpetas]
-    plazo = time.monotonic() + segundos
-    vistas, encontradas = set(), []
-    while pendientes and len(vistas) < limite_carpetas and time.monotonic() < plazo:
-        carpeta, nivel, maximo = pendientes.pop(0)
-        clave = os.path.normcase(os.path.abspath(carpeta))
-        if clave in vistas:
-            continue
-        vistas.add(clave)
-        try:
-            with os.scandir(carpeta) as entradas:
-                for entrada in entradas:
-                    try:
-                        if entrada.is_symlink() or getattr(entrada, "is_junction", lambda: False)():
+    fin = time.monotonic() + limite
+    lugares = lugares_datos_anteriores() if lugares is None else lugares
+    excluir = {os.path.normcase(os.path.abspath(ruta)) for ruta in excluir}
+    candidatas = {}
+    for raiz, profundidad in lugares:
+        pendientes = [(raiz, 0)]
+        while pendientes and time.monotonic() < fin:
+            carpeta, nivel = pendientes.pop()
+            try:
+                with os.scandir(carpeta) as entradas:
+                    for entrada in entradas:
+                        try:
+                            if entrada.is_dir(follow_symlinks=False):
+                                if (nivel < profundidad and not entrada.name.startswith((".", "$"))
+                                        and entrada.name.lower() not in _CARPETAS_SIN_DATOS):
+                                    pendientes.append((entrada.path, nivel + 1))
+                            elif entrada.name.lower() == "agencia.db":
+                                clave = os.path.normcase(os.path.abspath(entrada.path))
+                                if clave not in excluir:
+                                    candidatas[clave] = entrada.path
+                        except OSError:
                             continue
-                        if entrada.is_file() and entrada.name.lower() == "agencia.db":
-                            encontradas.append(entrada.path)
-                        elif (nivel < maximo and entrada.is_dir() and not entrada.name.startswith((".", "$"))
-                              and entrada.name.lower() not in _SIN_BUSCAR):
-                            pendientes.append((entrada.path, nivel + 1, maximo))
-                    except OSError:
-                        continue
-        except OSError:
+            except OSError:
+                continue
+    mejor = None
+    for ruta in candidatas.values():
+        if _de_otra_agencia(ruta):      # p. ej. la de Servicio Exclusivo, si su programa está en el mismo equipo
             continue
-    copias = []
-    for ruta in dict.fromkeys(encontradas):
-        if misma_ruta(ruta, actual):
+        datos = contar_datos(ruta)
+        if not datos or not any(datos.get(tabla) for tabla in TABLAS):
             continue
         try:
             fecha = datetime.fromtimestamp(os.path.getmtime(ruta))
-        except (OSError, ValueError, OverflowError):
+        except OSError:
             continue
-        datos = contar_datos(ruta)
-        if datos is not None and any(datos.values()):
-            copias.append({"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Versión anterior",
-                           "donde": os.path.dirname(ruta), "fecha": fecha, "agencia": identidad_de_base(ruta),
-                           **datos})
-    # Primero las que se sabe que son de esta agencia; luego la que tiene más registros; luego la más reciente.
-    return sorted(copias, key=lambda c: (c["agencia"] == "propia", total_registros(c), c["fecha"]), reverse=True)
+        if mejor is None or fecha > mejor["fecha"]:
+            mejor = {"ruta": ruta, "nombre": os.path.basename(ruta), "tipo": "Versión anterior",
+                     "donde": "Versión anterior", "fecha": fecha, "anterior": True, **datos}
+    return mejor
 
 
-def total_registros(datos):
-    return sum(datos.get(t) or 0 for t in TABLAS) if datos else 0
-
-
-def identidad_de_base(ruta):
-    """«propia», «ajena» o «desconocida». En el mismo equipo puede estar el programa de otra agencia, que también
-    guarda un agencia.db junto a sí: se reconoce por el agencia.py que la acompaña (su AGENCIA_ESLOGAN), por los
-    contratos guardados en la base o por los de la carpeta «contratos». El nombre de la carpeta no cuenta."""
-    propia = AGENCIA_ESLOGAN.casefold()
-    carpeta = os.path.dirname(os.path.abspath(ruta))
-    if os.path.isfile(os.path.join(carpeta, "contratos_servitotal.py")):
-        return "propia"
-    try:
-        with open(os.path.join(carpeta, "agencia.py"), encoding="utf-8", errors="replace") as archivo:
-            m = re.search(r"^AGENCIA_ESLOGAN\s*=\s*[\"'](.*?)[\"']", archivo.read(400_000), re.M)
-        if m:
-            return "propia" if m.group(1).strip().casefold() == propia else "ajena"
-    except OSError:
-        pass
-    documentos = []
-    try:
-        con = conexion_lectura(ruta, timeout=1)
-        try:
-            if "contrato_html" in {f[1] for f in con.execute("PRAGMA table_info(colocaciones)")}:
-                documentos = [f[0] for f in con.execute(
-                    "SELECT contrato_html FROM colocaciones WHERE length(contrato_html) > 0 LIMIT 20")]
-        finally:
-            con.close()
-    except sqlite3.Error:
-        pass
-    try:
-        contratos = os.path.join(carpeta, "contratos")
-        for nombre in sorted(os.listdir(contratos))[:10]:
-            if nombre.lower().endswith(".html"):
-                with open(os.path.join(contratos, nombre), encoding="utf-8", errors="replace") as archivo:
-                    documentos.append(archivo.read(200_000))
-    except OSError:
-        pass
-    if documentos:
-        return "propia" if any(propia in str(d).casefold() for d in documentos) else "ajena"
-    return "desconocida"
-
-
-def nombres_de_ejemplo(ruta, cantidad=3):
-    """Algunos nombres de clientes, para que la agencia reconozca sus propios datos antes de traerlos."""
-    try:
-        con = conexion_lectura(ruta, timeout=1)
-        try:
-            return [f[0].strip() for f in con.execute(
-                "SELECT nombre FROM clientes WHERE trim(coalesce(nombre, '')) <> '' ORDER BY id DESC LIMIT ?",
-                (cantidad,))]
-        finally:
-            con.close()
-    except sqlite3.Error:
-        return []
-
-
-def buscar_base_anterior(ruta=None, carpetas=None, aunque_haya_datos=False, segundos=4.0):
-    """La base de una versión anterior que conviene ofrecer (nunca la de otra agencia). Normalmente sólo si el
-    programa está vacío; con aunque_haya_datos también cuando ya tiene algo (p. ej. una prueba hecha en 1.7.1)."""
-    ruta = DB_PATH if ruta is None else ruta
-    if not aunque_haya_datos and hay_datos(ruta):
-        return None
-    try:
-        encontradas = [c for c in buscar_bases_anteriores(carpetas, actual=ruta, segundos=segundos)
-                       if c["agencia"] != "ajena"]
-    except Exception:   # buscar es una ayuda: nunca debe impedir abrir el programa
-        return None
-    if not encontradas:
-        return None
-    return dict(encontradas[0], otras=[c["ruta"] for c in encontradas[1:]],
-                ejemplos=nombres_de_ejemplo(encontradas[0]["ruta"]))
+def debe_buscar_datos_anteriores():
+    """Solo en Windows, con el programa instalado (o el .exe) y todavía sin datos: es la situación de quien usaba
+    Iniciar.bat o Agencia.exe con los datos junto al programa y acaba de pasar al instalador."""
+    return ES_WINDOWS and (getattr(sys, "frozen", False) or instalado_con_runtime()) and not hay_datos(DB_PATH)
 
 
 def restaurar_si_esta_danada(ruta=None, carpeta=None):
     """Prepara y migra la recuperación antes de apartar una base dañada."""
+    import tempfile
     import uuid
     ruta = DB_PATH if ruta is None else os.fspath(ruta)
     if not os.path.exists(ruta) or base_sana(ruta):
@@ -6132,7 +7025,7 @@ def restaurar_si_esta_danada(ruta=None, carpeta=None):
     destino = CARPETA_RESPALDOS if carpeta is None else carpetas[0][0]
     os.makedirs(destino, exist_ok=True)
     apartada = os.path.join(destino, f"agencia-danada-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}.db")
-    with carpeta_temporal(prefix="agencia-recuperacion-", dir=Path(ruta).parent) as temporal:
+    with carpeta_temporal("agencia-recuperacion-", dir=Path(ruta).parent) as temporal:
         preparada = os.path.join(temporal, "verificada.db")
         copiar_base(sano["ruta"], preparada)
         migrada = BaseDatos(preparada)
@@ -6165,6 +7058,8 @@ def esquema_desactualizado(ruta):
                 existentes = {fila[1] for fila in con.execute(f"PRAGMA table_info({tabla})")}
                 if not existentes or set(claves(campos)) - existentes:
                     return True
+            if _garantias_pendientes(con):      # garantías de Servitotal en días: pasan a meses con copia previa
+                return True
             return not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'areas'").fetchone()
         finally:
             con.close()
@@ -6172,29 +7067,27 @@ def esquema_desactualizado(ruta):
         return False
 
 
-def elegir_oferta(copia, anterior):
-    """Entre una copia de seguridad y los datos de la versión anterior, ofrece primero lo que tiene más registros
-    (una copia de una prueba casi vacía no debe tapar los datos reales) y, si empatan, lo más reciente. Lo otro
-    queda como alternativa."""
-    if anterior and (copia is None or (total_registros(anterior), anterior["fecha"])
-                     > (total_registros(copia), copia["fecha"])):
-        return dict(anterior, alternativa=copia)
-    return dict(copia, alternativa=anterior) if copia else None
-
-
-def preparar_base(buscar_anterior=True):
+def preparar_base():
     """Antes de abrir la ventana: revisa la base y, si hace falta, la restaura.
-    Devuelve (aviso, oferta): un aviso si se restauró algo, y la copia que conviene ofrecer si el programa está vacío.
-    Con buscar_anterior=False no recorre las carpetas personales (el programa lo hace después, con la ventana ya
-    abierta: esa búsqueda puede tardar unos segundos)."""
+    Devuelve (aviso, oferta): un aviso si se restauró algo, y la copia que conviene ofrecer si el programa está vacío."""
     aviso = restaurar_si_esta_danada()
+    if os.path.exists(DB_PATH + "-journal") or os.path.exists(DB_PATH + "-wal"):
+        # Una sesión anterior se cortó a mitad de guardar (corte de luz, apagado): una conexión de escritura
+        # deshace lo pendiente, como haría SQLite al abrir. Si no, las lecturas de solo lectura de abajo fallarían
+        # y la base se migraría sin la copia previa.
+        try:
+            con = sqlite3.connect(DB_PATH, timeout=10)
+            try:
+                con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            finally:
+                con.close()
+        except sqlite3.Error:
+            pass
     if esquema_desactualizado(DB_PATH):
         copia = respaldar("antes-de-actualizar")
         if not (copia["archivo"] or copia["externas"] or copia["omitido"]):
             raise OSError("No se pudo guardar una copia antes de actualizar la base. " + "; ".join(copia["errores"]))
-    copia = buscar_restauracion()
-    anterior = buscar_base_anterior() if buscar_anterior and BUSCAR_VERSION_ANTERIOR else None
-    return aviso, elegir_oferta(copia, anterior)
+    return aviso, buscar_restauracion()
 
 
 def reabrir_con_tk_moderno():
@@ -6221,9 +7114,10 @@ def reabrir_con_tk_moderno():
             continue
 
 
-def registrar_error(info, ruta=ERRORES_PATH):
+def registrar_error(info, ruta=None):
     """Anota un error inesperado en errores.log (junto al programa) y devuelve su detalle.
     Sin consola (pyw / .exe) un fallo en un botón pasaría sin que nadie lo note."""
+    ruta = ERRORES_PATH if ruta is None else ruta
     import traceback
     detalle = "".join(traceback.format_exception(*info))
     try:
@@ -6233,7 +7127,7 @@ def registrar_error(info, ruta=ERRORES_PATH):
         pass
     try:
         with open(ruta, "a", encoding="utf-8") as archivo:
-            archivo.write(f"--- {datetime.now():%d/%m/%Y %H:%M:%S} ---\n{detalle}\n")
+            archivo.write(f"--- {datetime.now():%d/%m/%Y %H:%M:%S} · versión {VERSION} ---\n{detalle}\n")
     except OSError:
         pass
     return detalle
@@ -6254,201 +7148,37 @@ def avisar_error(root, tipo, valor, traza, abierto=[False]):
         abierto[0] = False
 
 
-ID_APLICACION = "Servitotal.AgenciaDeEmpleos"   # identidad en la barra de tareas de Windows
-TITULO_PREGUNTA_ANTERIOR = "¿Tenía datos en la versión anterior?"
-
-
-def comando_para_reabrir():
-    """La línea con la que se abrió este programa, para volver a abrirlo igual desde la barra de tareas."""
-    import subprocess
-    if getattr(sys, "frozen", False):
-        partes = [sys.executable] + sys.argv[1:]
-    else:
-        partes = [sys.executable] + list(getattr(sys, "orig_argv", [None] + sys.argv)[1:])
-    partes = [os.path.abspath(p) if p and not os.path.isabs(p) and os.path.exists(p) else p for p in partes]
-    return subprocess.list2cmdline(partes)
-
-
-def propiedades_de_ventana(hwnd, valores=None):
-    """Lee (y, si se indican, escribe) las propiedades de barra de tareas de una ventana de Windows.
-    `valores` asocia el número de propiedad de System.AppUserModel (2 comando para reabrir, 3 ícono, 4 nombre,
-    5 identidad) con su texto. Devuelve lo que la ventana tiene guardado después."""
-    import ctypes
-    from ctypes import wintypes
-
-    class GUID(ctypes.Structure):
-        _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
-
-    class Clave(ctypes.Structure):
-        _fields_ = [("fmtid", GUID), ("pid", wintypes.DWORD)]
-
-    class Valor(ctypes.Structure):          # PROPVARIANT: 16 bytes en 32 bits, 24 en 64
-        _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
-                    ("r3", ctypes.c_ushort), ("dato", ctypes.c_void_p), ("extra", ctypes.c_void_p)]
-
-    def guid(texto):
-        g = GUID()
-        ctypes.oledll.ole32.CLSIDFromString(texto, ctypes.byref(g))
-        return g
-
-    shell32, ole32 = ctypes.windll.shell32, ctypes.windll.ole32
-    shell32.SHGetPropertyStoreForWindow.argtypes = [wintypes.HWND, ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)]
-    shell32.SHGetPropertyStoreForWindow.restype = ctypes.HRESULT
-    ole32.PropVariantClear.argtypes = [ctypes.POINTER(Valor)]
-    almacen = ctypes.c_void_p()
-    shell32.SHGetPropertyStoreForWindow(hwnd, ctypes.byref(guid("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")),
-                                        ctypes.byref(almacen))
-    tabla = ctypes.cast(almacen, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
-    liberar = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(tabla[2])
-    leer = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(Clave), ctypes.POINTER(Valor))(tabla[5])
-    escribir = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(Clave), ctypes.POINTER(Valor))(tabla[6])
-    confirmar = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p)(tabla[7])
-    familia = guid("{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}")
-    try:
-        for numero, texto in sorted((valores or {}).items()):   # la identidad (5) va al final
-            textos = ctypes.create_unicode_buffer(texto)
-            escribir(almacen, ctypes.byref(Clave(familia, numero)),
-                     ctypes.byref(Valor(vt=31, dato=ctypes.cast(textos, ctypes.c_void_p).value)))   # VT_LPWSTR
-        if valores:
-            confirmar(almacen)
-        guardado = {}
-        for numero in (2, 3, 4, 5):
-            valor = Valor()
-            leer(almacen, ctypes.byref(Clave(familia, numero)), ctypes.byref(valor))
-            if valor.vt == 31 and valor.dato:
-                guardado[numero] = ctypes.wstring_at(valor.dato)
-            ole32.PropVariantClear(ctypes.byref(valor))
-        return guardado
-    finally:
-        liberar(almacen)
-
-
-def traer_al_frente(root):
-    """Windows puede dejar detrás de las demás ventanas un programa abierto por otro que se está cerrando (el botón
-    «Terminar» del instalador): parecería que no se abrió nada. Se muestra un momento por encima de todo y toma el
-    foco; luego vuelve a ser una ventana normal."""
-    if not ES_WINDOWS:
-        return
-
-    def soltar():
-        try:
-            root.attributes("-topmost", False)
-        except tk.TclError:          # la ventana ya se cerró
-            pass
-
-    try:
-        root.deiconify()
-        root.lift()
-        root.attributes("-topmost", True)
-        root.focus_force()
-        root.after(1500, soltar)
-    except tk.TclError:
-        pass
-
-
-def fijar_relanzamiento(root):
-    """Windows: al anclar la ventana abierta a la barra de tareas, el ícono anclado debe volver a abrir Servitotal.
-    Sin estas propiedades Windows anclaría pythonw.exe sin argumentos, que al pulsarlo no abre nada."""
-    if not ES_WINDOWS:
-        return None
-    try:
-        root.update_idletasks()
-        valores = {2: comando_para_reabrir(), 4: AGENCIA_ESLOGAN, 5: ID_APLICACION}
-        if os.path.isfile(ICONO_ICO):
-            valores[3] = ICONO_ICO
-        return propiedades_de_ventana(int(root.wm_frame(), 16), valores)
-    except Exception:           # una ayuda de la barra de tareas nunca debe impedir abrir el programa
-        return None
-
-
-_INSTANCIAS = {}     # cerrojos de «ya está abierto» que mantiene este proceso
-
-
-def otra_ventana_abierta():
-    """Windows: si Servitotal ya está abierto con estos mismos datos (p. ej. se pulsó Terminar en el instalador y
-    además el ícono del Escritorio), trae esa ventana al frente y devuelve True: así nunca hay dos ventanas
-    ofreciendo traer los mismos datos."""
-    if not ES_WINDOWS:
-        return False
-    try:
-        import ctypes
-        import hashlib
-        import time
-        nombre = "Local\\Servitotal-" + hashlib.sha1(os.path.normcase(os.path.abspath(CARPETA)).encode("utf-8")).hexdigest()[:16]
-        if nombre in _INSTANCIAS:
-            return False
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.CreateMutexW.restype = ctypes.c_void_p
-        cerrojo = kernel32.CreateMutexW(None, False, nombre)
-        if not cerrojo:
-            return False
-        if ctypes.get_last_error() != 183:          # 183: ya existía, lo creó otro Servitotal abierto
-            _INSTANCIAS[nombre] = cerrojo
-            return False
-        kernel32.CloseHandle(ctypes.c_void_p(cerrojo))
-        user32 = ctypes.windll.user32
-        titulo = f"{AGENCIA_NOMBRE} “{AGENCIA_ESLOGAN}”"
-        limite = time.monotonic() + 15              # la otra puede estar todavía abriéndose
-        while time.monotonic() < limite:
-            ventana = user32.FindWindowW(None, titulo)
-            if ventana:
-                if user32.IsIconic(ventana):
-                    user32.ShowWindow(ventana, 9)   # SW_RESTORE
-                user32.SetForegroundWindow(ventana)
-                return True
-            time.sleep(0.2)
-        _aviso_de_inicio(f"{AGENCIA_ESLOGAN} ya se está abriendo. Si en unos segundos no aparece su ventana, "
-                         "reinicie la computadora y vuelva a abrirlo.")
-        return True
-    except Exception:           # comprobarlo es una ayuda: nunca debe impedir abrir el programa
-        return False
-
-
 def main():
     reabrir_con_tk_moderno()
-    if otra_ventana_abierta():
-        return
     try:  # texto nítido en pantallas con escala en Windows
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
-    try:  # identidad propia en la barra de tareas de Windows: su ícono, no el de Python
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ID_APLICACION)
-    except Exception:
-        pass
+    # Sin AppUserModelID propio: así Windows asocia la ventana al acceso directo con el que se abrió, y anclarla a
+    # la barra de tareas ancla ese acceso (con iniciar.pyw y --datos). El ícono sigue siendo el del programa.
     root = tk.Tk()
     root.report_callback_exception = lambda tipo, valor, traza: avisar_error(root, tipo, valor, traza)
     try:
         os.makedirs(CARPETA, exist_ok=True)
-        aviso, oferta = preparar_base(buscar_anterior=False)   # la ventana aparece sin esperar esa búsqueda
+        aviso, oferta = preparar_base()
+        quitar_impresion_automatica()          # contratos de versiones anteriores que se imprimían solos al abrirse
+        if not aviso and debe_buscar_datos_anteriores():
+            descartados = leer_configuracion().get("datos_anteriores_descartados") or []
+            anterior = buscar_datos_anteriores(excluir=[DB_PATH, *[d for d in descartados if isinstance(d, str)]])
+            if anterior and (not oferta or anterior["fecha"] > oferta["fecha"]):
+                oferta = anterior
         app = App(root)
     except Exception:  # p. ej. base dañada sin respaldo, bloqueada o sin permiso: avisar en vez de cerrarse en silencio
         avisar_error(root, *sys.exc_info())
         root.destroy()
         return
-    fijar_relanzamiento(root)
-    traer_al_frente(root)
     if aviso:
         root.after(400, lambda: messagebox.showwarning("Base de datos restaurada", aviso))
-    else:
-        app.ofrecer_datos_al_abrir(oferta and {k: v for k, v in oferta.items() if k != "alternativa"})
+    elif oferta:
+        root.after(400, lambda: app.ofrecer_recuperacion(oferta))
     root.mainloop()
 
 
-def arrancar():
-    """Punto de entrada al abrir agencia.py directamente (Iniciar.bat) o el EXE de PyInstaller: pyw no tiene
-    consola, así que un fallo antes de que exista la ventana se guarda en errores.log y se muestra."""
-    try:
-        main()
-    except SystemExit:
-        raise
-    except BaseException:
-        detalle = registrar_error(sys.exc_info(), ERRORES_PATH)
-        donde = f"\n\nEl detalle quedó en:\n{ERRORES_PATH}" if os.path.isfile(ERRORES_PATH) else ""
-        _aviso_de_inicio("No se pudo abrir Servitotal.\n\n" + detalle.strip().splitlines()[-1][:300] + donde)
-        raise SystemExit(1)
-
-
 if __name__ == "__main__":
-    arrancar()
+    main()

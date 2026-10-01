@@ -6,7 +6,6 @@
 !/README.md
 !/LEEME.txt
 !/agencia.py
-!/contratos_servitotal.py
 !/logo.png
 !/icono.png
 !/icono.ico
@@ -21,25 +20,28 @@
 !/.github/workflows/windows-smoke.yml
 !/.github/workflows/windows-python.yml
 !/.github/workflows/windows-pruebas.yml
+!/.github/windows/
+/.github/windows/*
+!/.github/windows/vieja_1_7_0.sql
 !/test_agencia.py
-!/test_contratos_servitotal.py
-!/test_migracion_servitotal.py
+!/test_servitotal.py
+!/test_fiabilidad_basedatos.py
 !/test_fiabilidad_documentos_respaldos.py
 !/test_fiabilidad_estados.py
 !/test_fiabilidad_exportacion.py
 !/test_fiabilidad_finanzas.py
 !/test_fiabilidad_helpers.py
 !/test_optimizacion.py
+!/test_optimizacion_basedatos.py
 !/test_optimizacion_ui.py
 !/test_instaladores_fiabilidad.py
-!/test_datos_version_anterior.py
-!/test_compatibilidad_windows.py
+!/test_windows.py
 !/instaladores/
 /instaladores/*
 !/instaladores/Servitotal-Windows-x64.exe
 !/instaladores/Servitotal-Mac-arm64.dmg
-!/instaladores/Servitotal-1.7.2-Windows-portable.zip
-!/instaladores/Servitotal-1.7.2-Windows-Python.zip
+!/instaladores/Servitotal-1.8.0-Windows-portable.zip
+!/instaladores/Servitotal-1.8.0-Windows-Python.zip
 !/instaladores/SHA256SUMS.txt
 !/instaladores/construccion/
 /instaladores/construccion/*
@@ -59,6 +61,7 @@
 !/instaladores/construccion/abrir_python.pyw
 !/instaladores/construccion/crear_paquete_python.py
 !/instaladores/construccion/verificar_python_windows.py
+!/instaladores/construccion/igualar_con_tia.py
 
 # Exclusiones explícitas: datos privados y archivos generados.
 analisis/

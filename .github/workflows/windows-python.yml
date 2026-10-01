@@ -23,7 +23,7 @@ jobs:
 
       - name: Comprobar apertura con Python oficial y conservación de datos ficticios
         shell: pwsh
-        run: python instaladores/construccion/verificar_python_windows.py --zip instaladores/Servitotal-1.7.2-Windows-Python.zip --evidencia evidencia-python-windows.json
+        run: python instaladores/construccion/verificar_python_windows.py --zip instaladores/Servitotal-1.8.0-Windows-Python.zip --evidencia evidencia-python-windows.json
 
       - name: Conservar evidencia de la prueba
         if: always()

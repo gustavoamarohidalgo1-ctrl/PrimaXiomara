@@ -1,10 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0" || goto carpeta_error
-for %%F in (agencia.py contratos_servitotal.py) do if not exist "%%F" (
-  set "FALTA=%%F"
-  goto archivo_error
-)
+if not exist "agencia.py" goto archivo_error
 
 set "PY=py"
 set "PY_OPCIONES=-3"
@@ -45,8 +42,7 @@ echo Instale Python 3.12 o posterior desde https://www.python.org/downloads/
 echo o use el instalador Servitotal-Windows-x64.exe, que trae su propio Python.
 goto fallar
 :archivo_error
-echo Falta %FALTA% junto a Iniciar.bat.
-echo Copie TODOS los archivos de la actualizacion en esta carpeta, no solo agencia.py.
+echo No se encontro agencia.py junto a Iniciar.bat.
 goto fallar
 :carpeta_error
 echo No se pudo abrir la carpeta del programa.

@@ -12,6 +12,7 @@ import unittest
 
 
 RAIZ = Path(__file__).resolve().parent
+VERSION = re.search(r'^VERSION = "([0-9.]+)"', (RAIZ / "agencia.py").read_text(encoding="utf-8"), re.M).group(1)
 
 
 class InstaladoresProtegidos(unittest.TestCase):
@@ -50,8 +51,8 @@ class InstaladoresProtegidos(unittest.TestCase):
                 cadenas = {n.args[0].value: n.args[1].value for n in ast.walk(metadata)
                            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "StringStruct"}
                 self.assertEqual(cadenas["ProductName"], marca)
-                self.assertEqual(cadenas["ProductVersion"], "1.7.2")
-                self.assertEqual(cadenas["FileVersion"], "1.7.2")
+                self.assertEqual(cadenas["ProductVersion"], VERSION)          # la de agencia.py
+                self.assertEqual(cadenas["FileVersion"], VERSION)
                 bat = (proyecto / "Crear_EXE.bat").read_bytes()
                 self.assertEqual(bat.count(b"\n"), bat.count(b"\r\n"))
                 texto = bat.decode("ascii")
@@ -97,7 +98,7 @@ class InstaladoresProtegidos(unittest.TestCase):
                 salida = temporal / "fixture.exe"
                 compilacion = subprocess.run([
                     compilador, "-V3", f"-DRAIZ={proyecto}", f"-DAPLICACION={app}",
-                    f"-DRUNTIME={runtime}", "-DVERSION=1.7.2", f"-DSALIDA={salida}",
+                    f"-DRUNTIME={runtime}", f"-DVERSION={VERSION}", f"-DSALIDA={salida}",
                     f"-DICONO={icono}", str(guion)], capture_output=True, text=True,
                     env={**os.environ, "LC_ALL": "en_US.UTF-8"}, timeout=30)
                 self.assertEqual(compilacion.returncode, 0, compilacion.stdout + compilacion.stderr)
@@ -131,7 +132,7 @@ class PaquetesWindowsPublicados(unittest.TestCase):
     """Los paquetes de instaladores/ deben corresponder exactamente al código del repositorio."""
 
     AQUI = RAIZ / "instaladores" / "construccion"
-    FUENTES = ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")
+    FUENTES = ("agencia.py", "logo.png", "icono.png", "icono.ico")
 
     def huellas(self):
         huellas = {}
@@ -173,9 +174,8 @@ class PaquetesWindowsPublicados(unittest.TestCase):
                 self.assertIn(f"{raiz}/{n}", nombres)
             self.assertFalse([n for n in nombres if n.lower().endswith((".bat", ".cmd", ".ps1", ".vbs", ".lnk"))])
             if sys.version_info[:2] == (3, 12):      # el mismo número mágico que el Python incluido
-                for modulo in ("agencia", "contratos_servitotal"):
-                    pyc = paquete.read(f"{raiz}/app/__pycache__/{modulo}.cpython-312.pyc")
-                    self.assertEqual(pyc[8:16], importlib.util.source_hash((RAIZ / f"{modulo}.py").read_bytes()))
+                pyc = paquete.read(f"{raiz}/app/__pycache__/agencia.cpython-312.pyc")
+                self.assertEqual(pyc[8:16], importlib.util.source_hash((RAIZ / "agencia.py").read_bytes()))
 
     def test_el_zip_para_python_oficial_lleva_el_codigo_actual(self):
         huellas = self.huellas()

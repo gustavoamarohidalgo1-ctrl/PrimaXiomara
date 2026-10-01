@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0" || goto fallar
-for %%F in (agencia.py contratos_servitotal.py logo.png icono.png icono.ico instaladores\construccion\version_windows.txt) do if not exist "%%F" (
+for %%F in (agencia.py logo.png icono.png icono.ico instaladores\construccion\version_windows.txt) do if not exist "%%F" (
   echo Falta %%F en la carpeta del programa.
   goto fallar
 )

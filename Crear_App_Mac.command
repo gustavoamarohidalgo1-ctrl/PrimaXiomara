@@ -42,7 +42,7 @@ def comprobar_app_cerrada():
         sys.exit("Cierre Servitotal antes de recrear su app. Procesos activos: " + ", ".join(activos))
 
 comprobar_app_cerrada()
-for recurso in ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.icns"):
+for recurso in ("agencia.py", "logo.png", "icono.icns"):
     if not os.path.isfile(os.path.join(carpeta, recurso)):
         sys.exit(f"Falta {recurso} en la carpeta del programa.")
 
@@ -86,11 +86,13 @@ try:
                       'AQUI="$(cd "$(dirname "$0")" && pwd)"\n'
                       'exec "$AQUI/python" "$AQUI/../../../agencia.py" "$@"\n')
     os.chmod(lanzador, 0o755)
+    with open(os.path.join(carpeta, "agencia.py"), encoding="utf-8") as fuente:
+        version = re.search(r'^VERSION = "([0-9.]+)"', fuente.read(), re.M).group(1)    # la del programa
     with open(os.path.join(nueva, "Contents", "Info.plist"), "wb") as archivo:
         plistlib.dump({"CFBundleName": "Servitotal", "CFBundleDisplayName": "Servitotal",
                        "CFBundleExecutable": "Servitotal", "CFBundleIdentifier": "pe.servitotal.agencia",
                        "CFBundleIconFile": "icono", "CFBundlePackageType": "APPL",
-                       "CFBundleVersion": "1.7.2", "CFBundleShortVersionString": "1.7.2",
+                       "CFBundleVersion": version, "CFBundleShortVersionString": version,
                        "NSHighResolutionCapable": True, "LSMinimumSystemVersion": minimo}, archivo)
     comprobar_app_cerrada()
     if os.path.exists(app):

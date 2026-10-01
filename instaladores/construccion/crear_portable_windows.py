@@ -5,6 +5,7 @@ El ZIP no lleva ningún ejecutable propio ni .bat: «Servitotal.exe» es el pyth
 sus propias carpetas. Así Windows no lo trata como un programa desconocido."""
 from pathlib import Path
 import hashlib
+import re
 import shutil
 import struct
 import subprocess
@@ -15,7 +16,7 @@ import zipfile
 
 RAIZ = Path(__file__).resolve().parents[2]
 AQUI = Path(__file__).resolve().parent
-VERSION = "1.7.2"
+VERSION = re.search(r'^VERSION = "([0-9.]+)"', (RAIZ / "agencia.py").read_text(encoding="utf-8"), re.M).group(1)   # la de agencia.py
 EXE = RAIZ / "instaladores/Servitotal-Windows-x64.exe"
 SALIDA = RAIZ / f"instaladores/Servitotal-{VERSION}-Windows-portable.zip"
 NOMBRE = f"Servitotal-{VERSION}"
@@ -38,9 +39,9 @@ Enviar a > Escritorio (crear acceso directo).
 
 Conserve la carpeta completa. Los datos se guardan en %LOCALAPPDATA%\\Servitotal,
 igual que con el instalador, así que no se pierden al cambiar de versión.
-La primera vez, si encuentra los datos de la versión anterior (agencia.db en
-el Escritorio, Documentos o Descargas), el programa ofrece traerlos. También
-puede traerlos con Ctrl+Shift+B > «Traer datos de otra carpeta…».
+Para traer los datos de la versión anterior (el agencia.db que estaba junto
+al programa): Ctrl+Shift+B > «Traer datos de otro archivo…» y elija ese
+agencia.db.
 
 Si no abre, haga doble clic en Diagnosticar Servitotal.exe: muestra el error
 en una ventana. Los fallos también se guardan en
@@ -53,7 +54,7 @@ Origen: https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara
 NECESARIOS = ("Servitotal.exe", "Diagnosticar Servitotal.exe", "python312.dll", "python3.dll", "vcruntime140.dll",
               "vcruntime140_1.dll", "python312._pth", "Lib/sitecustomize.py", "Lib/os.py", "DLLs/_tkinter.pyd",
               "DLLs/_sqlite3.pyd", "tcl/tcl8.6/init.tcl", "tcl/tk8.6/tk.tcl", "app/agencia.py",
-              "app/contratos_servitotal.py", "app/abrir_portable.pyw", "app/logo.png", "app/icono.ico")
+              "app/abrir_portable.pyw", "app/logo.png", "app/icono.ico")
 
 
 def firmado(ruta):
@@ -80,7 +81,7 @@ def main():
         (carpeta / "python.exe").rename(carpeta / "Diagnosticar Servitotal.exe")
         shutil.copytree(payload / "app", carpeta / "app")
         (carpeta / "app/iniciar.pyw").unlink()          # es el arranque del instalador
-        for nombre in ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico"):
+        for nombre in ("agencia.py", "logo.png", "icono.png", "icono.ico"):
             if (carpeta / "app" / nombre).read_bytes() != (RAIZ / nombre).read_bytes():
                 raise RuntimeError("El instalador no corresponde a la fuente actual: " + nombre)
         shutil.copy2(AQUI / "abrir_portable.pyw", carpeta / "app/abrir_portable.pyw")

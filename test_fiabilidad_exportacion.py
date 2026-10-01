@@ -1,5 +1,4 @@
 """Exportaciones CSV completas y recuperación ante errores, con datos ficticios."""
-from contextlib import closing
 import csv
 import hashlib
 import json
@@ -11,6 +10,10 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
+from contextlib import closing
+
+if not os.environ.get("AGENCIA_DATOS"):      # nunca la carpeta de datos real, aunque se pruebe desde el proyecto
+    os.environ["AGENCIA_DATOS"] = tempfile.mkdtemp(prefix="agencia-pruebas-")
 
 import agencia
 
@@ -260,7 +263,7 @@ class FiabilidadExportacionTest(unittest.TestCase):
                 agencia.copia_externa(str(self.ruta), str(externa), datetime(2026, 9, 29))
         copia = externa / "agencia-20260929.db"
         self.assertTrue(copia.is_file())
-        with closing(agencia.conexion_lectura(str(copia))) as con, con:
+        with closing(agencia.conexion_lectura(str(copia))) as con:
             self.assertEqual(con.execute("SELECT nombre FROM clientes").fetchone()[0], "Cliente actual")
         self.assertEqual(list((externa / "Datos legibles").iterdir()), [])
 

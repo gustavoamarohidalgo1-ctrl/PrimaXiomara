@@ -11,7 +11,8 @@ AQUI="$RAIZ/instaladores/construccion"
 SALIDA="$RAIZ/instaladores/Servitotal-Windows-x64.exe"
 TRABAJO="$(mktemp -d "${TMPDIR:-/tmp}/servitotal-instalador-windows.XXXXXX")"
 CACHE="${TMPDIR:-/tmp}/servitotal-instalador-descargas"
-VERSION="${VERSION:-1.7.2}"
+VERSION="${VERSION:-$(sed -n 's/^VERSION = "\([0-9.]*\)".*/\1/p' "$RAIZ/agencia.py")}"   # la de agencia.py
+[ -n "$VERSION" ] || { echo "No se encontro VERSION en agencia.py."; exit 1; }
 trap 'codigo=$?; if [ "$codigo" -eq 0 ]; then rm -rf "$TRABAJO"; else echo "Construccion fallida. Archivos conservados en: $TRABAJO" >&2; fi' EXIT
 PYVER="3.12.10"     # ultima 3.12 con binarios para Windows
 
@@ -24,7 +25,7 @@ EXE_SHA="67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb"
 for herramienta in makensis 7zz msiextract unzip curl python3 shasum; do
   command -v "$herramienta" >/dev/null || { echo "Falta '$herramienta'.  Instale:  brew install makensis sevenzip msitools"; exit 1; }
 done
-for recurso in agencia.py contratos_servitotal.py logo.png icono.png icono.ico; do
+for recurso in agencia.py logo.png icono.png icono.ico; do
   [ -f "$RAIZ/$recurso" ] || { echo "Falta $recurso en la carpeta de Servitotal."; exit 1; }
 done
 mkdir -p "$TRABAJO" "$CACHE" "$RAIZ/instaladores"
@@ -94,9 +95,9 @@ done
 cp "$AQUI/arranque_portable.py" "$R/Lib/sitecustomize.py"
 APP="$TRABAJO/aplicacion"
 rm -rf "$APP" && mkdir -p "$APP"
-cp "$RAIZ/agencia.py" "$RAIZ/contratos_servitotal.py" "$RAIZ/logo.png" "$RAIZ/icono.png" "$RAIZ/icono.ico" "$AQUI/iniciar.pyw" "$APP/"
+cp "$RAIZ/agencia.py" "$RAIZ/logo.png" "$RAIZ/icono.png" "$RAIZ/icono.ico" "$AQUI/iniciar.pyw" "$APP/"
 if [ -n "$PY312" ]; then
-  "$PY312" -m compileall -q -f --invalidation-mode unchecked-hash "$R/Lib" "$APP/agencia.py" "$APP/contratos_servitotal.py" >/dev/null
+  "$PY312" -m compileall -q -f --invalidation-mode unchecked-hash "$R/Lib" "$APP/agencia.py" >/dev/null
   echo "Precompilado con $("$PY312" -V): $(find "$R/Lib" "$APP" -name '*.pyc' | wc -l | tr -d ' ') archivos"
 else
   echo "AVISO: no hay Python 3.12 para precompilar; el instalador funciona igual pero abrira mas lento."

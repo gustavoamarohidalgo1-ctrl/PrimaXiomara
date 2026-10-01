@@ -8,12 +8,13 @@ CONSTRUCCION="$RAIZ/instaladores/construccion"
 SALIDA="$RAIZ/instaladores"
 TRABAJO="$(mktemp -d "${TMPDIR:-/tmp}/servitotal-instalador-mac.XXXXXX")"    # carpeta temporal de trabajo (se puede borrar)
 NOMBRE="Servitotal"
-VERSION="${VERSION:-1.7.2}"
+VERSION="${VERSION:-$(sed -n 's/^VERSION = "\([0-9.]*\)".*/\1/p' "$RAIZ/agencia.py")}"   # la de agencia.py
+[ -n "$VERSION" ] || { echo "No se encontro VERSION en agencia.py."; exit 1; }
 trap 'codigo=$?; if [ "$codigo" -eq 0 ]; then rm -rf "$TRABAJO"; else echo "Construccion fallida. Archivos conservados en: $TRABAJO" >&2; fi' EXIT
 DMG="$SALIDA/Servitotal-Mac-arm64.dmg"
 
 [ "$(uname -m)" = "arm64" ] || { echo "Este script es para Mac con Apple Silicon (arm64)."; exit 1; }
-for recurso in agencia.py contratos_servitotal.py logo.png icono.png icono.ico icono.icns; do
+for recurso in agencia.py logo.png icono.png icono.ico icono.icns; do
   [ -f "$RAIZ/$recurso" ] || { echo "Falta $recurso en la carpeta de Servitotal."; exit 1; }
 done
 

@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -28,16 +29,15 @@ import traceback
 from urllib.request import urlopen
 
 
-VERSION = "1.7.2"
-TITULO = "Agencia de Empleos “Servitotal”"
+VERSION = re.search(r'^VERSION = "([0-9.]+)"', (Path(__file__).resolve().parents[2] / "agencia.py")
+                    .read_text(encoding="utf-8"), re.M).group(1)          # la de agencia.py
+TITULO = "Agencia de Empleos"
 # Versión publicada antes del arreglo: la agencia puede tenerla instalada.
 URL_ANTERIOR = ("https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/"
                 "3a9e0a944c071790656e3b511c3f67bd7249363c/instaladores/Servitotal-Windows-x64.exe")
 SHA256_ANTERIOR = "18b467dca5f9a2c4e64e61fbc75fb938eb21992f4b2d736758e7ccc5f2ab0811"
 CLAVE_DESINSTALAR = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Servitotal"
-WM_CLOSE, WM_COMMAND, IDYES, IDNO, BM_GETCHECK = 0x0010, 0x0111, 6, 7, 0x00F0
-# Primera apertura sin datos anteriores encontrados: el programa pregunta una sola vez (se responde No).
-PREGUNTA_ANTERIOR = "¿Tenía datos en la versión anterior?"
+WM_CLOSE, WM_COMMAND, IDYES, BM_GETCHECK = 0x0010, 0x0111, 6, 0x00F0
 MARCA = "SERVITOTAL_SMOKE "
 SMOKE = r'''
 import json, os, sqlite3, sys, traceback
@@ -47,17 +47,16 @@ root = None
 try:
     datos = Path(os.environ["AGENCIA_DATOS"])
     datos.mkdir(parents=True, exist_ok=True)
-    import agencia, contratos_servitotal, tkinter
+    import agencia, tkinter
     assert Path(agencia.CARPETA).resolve() == datos.resolve(), agencia.CARPETA
     import importlib.util
     resultado["pyc_de_la_fuente"] = []
-    for modulo in (agencia, contratos_servitotal):   # un .pyc «unchecked-hash» viejo se usaría sin avisar
-        cache = importlib.util.cache_from_source(modulo.__file__)
-        if os.path.exists(cache):
-            pyc = Path(cache).read_bytes()
-            if int.from_bytes(pyc[4:8], "little") & 1:
-                assert pyc[8:16] == importlib.util.source_hash(Path(modulo.__file__).read_bytes()), cache
-                resultado["pyc_de_la_fuente"].append(Path(cache).name)
+    cache = importlib.util.cache_from_source(agencia.__file__)   # un .pyc «unchecked-hash» viejo se usaría sin avisar
+    if os.path.exists(cache):
+        pyc = Path(cache).read_bytes()
+        if int.from_bytes(pyc[4:8], "little") & 1:
+            assert pyc[8:16] == importlib.util.source_hash(Path(agencia.__file__).read_bytes()), cache
+            resultado["pyc_de_la_fuente"].append(Path(cache).name)
     resultado["python"] = sys.version
     resultado["sqlite"] = sqlite3.sqlite_version
     with sqlite3.connect(":memory:") as conexion:
@@ -66,7 +65,7 @@ try:
     prueba.update()
     resultado["tk"] = str(prueba.tk.call("info", "patchlevel"))
     prueba.destroy()
-    resultado["importaciones"] = ["agencia", "contratos_servitotal", "tkinter", "sqlite3"]
+    resultado["importaciones"] = ["agencia", "tkinter", "sqlite3"]
     aviso, oferta = agencia.preparar_base()
     assert aviso is None and oferta is None, (aviso, oferta)
     root = tkinter.Tk()
@@ -75,7 +74,8 @@ try:
     app = agencia.App(root)
     root.update()
     resultado["titulo"] = root.title()
-    assert "Servitotal" in resultado["titulo"], resultado["titulo"]
+    assert resultado["titulo"] == "Agencia de Empleos", resultado["titulo"]
+    assert agencia.AGENCIA_ESLOGAN == "Servitotal", agencia.AGENCIA_ESLOGAN   # el programa de esta agencia
     resultado["base_inicializada"] = Path(agencia.DB_PATH).is_file()
     resultado["clientes_ficticios"] = app.db.con.execute("select count(*) from clientes").fetchone()[0]
     assert resultado["base_inicializada"] and resultado["clientes_ficticios"] == 0
@@ -432,7 +432,7 @@ def asistente_completo(exe, windows, evidencia, entorno, al_aviso=None):
         if not pasos or "terminar" not in pasos[-1] or not any("instalar" in p for p in pasos):
             raise RuntimeError("El asistente no pasó por Instalar y Terminar: " + str(evidencia["pulsados"]))
         time.sleep(4)
-        # Al frente debe estar Servitotal: su ventana o un aviso suyo (p. ej. la pregunta por los datos anteriores).
+        # Al frente debe estar Servitotal: su ventana o un aviso suyo.
         frente = windows.user.GetForegroundWindow()
         pid_frente = wintypes.DWORD()
         windows.user.GetWindowThreadProcessId(frente, ctypes.byref(pid_frente))
@@ -441,22 +441,16 @@ def asistente_completo(exe, windows, evidencia, entorno, al_aviso=None):
         evidencia["minimizada"] = bool(windows.user.IsIconic(programa["hwnd"]))
         if not evidencia["en_primer_plano"] or evidencia["minimizada"]:
             raise RuntimeError("La ventana del programa quedó detrás de otras o minimizada: la usuaria no la vería")
-        # Sin datos anteriores en este equipo, al terminar la búsqueda se pregunta una sola vez; nada más.
-        limite = time.monotonic() + 30
+        # Sin datos anteriores en este equipo, el programa termina de buscarlos y abre sin ningún aviso.
+        limite = time.monotonic() + 10
         evidencia["avisos_programa"] = []
         while time.monotonic() < limite:
             avisos = [v for v in windows.ventanas({programa["pid"]}) if v["clase"] == "#32770"]
             if avisos:
                 aviso = avisos[0]
                 evidencia["avisos_programa"].append({k: aviso[k] for k in ("titulo", "textos")})
-                if aviso["titulo"] != PREGUNTA_ANTERIOR:
-                    raise RuntimeError("El programa abrió con un aviso: %s %s" % (aviso["titulo"], aviso["textos"]))
-                windows.enviar(aviso["hwnd"], WM_COMMAND, IDNO)
-                time.sleep(1)
-                break
+                raise RuntimeError("El programa abrió con un aviso: %s %s" % (aviso["titulo"], aviso["textos"]))
             time.sleep(0.25)
-        else:
-            raise RuntimeError("No apareció la pregunta por los datos de la versión anterior")
         windows.enviar(programa["hwnd"], WM_CLOSE)
         evidencia["codigo_programa"] = windows.esperar_fin(programa["pid"], 60)
         if evidencia["codigo_programa"] != 0:
@@ -693,8 +687,7 @@ def main():
                 if evidencia["version_registrada"] != VERSION:
                     raise RuntimeError("El registro no muestra la versión " + VERSION)
                 piezas = ("runtime/python.exe", "runtime/pythonw.exe", "runtime/python312.dll",
-                          "runtime/vcruntime140_1.dll", "app/agencia.py", "app/contratos_servitotal.py",
-                          "app/iniciar.pyw", "Desinstalar.exe")
+                          "runtime/vcruntime140_1.dll", "app/agencia.py", "app/iniciar.pyw", "Desinstalar.exe")
                 evidencia["archivos"] = {ruta: (instalacion / ruta).is_file() for ruta in piezas}
                 if not all(evidencia["archivos"].values()):
                     raise RuntimeError("La instalación no contiene todas las piezas necesarias")
@@ -702,9 +695,7 @@ def main():
                 if sobrantes:
                     raise RuntimeError("Quedaron restos de la actualización: " + ", ".join(sobrantes))
                 raiz, aqui = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent
-                for instalado, fuente in (("agencia.py", raiz / "agencia.py"),
-                                          ("contratos_servitotal.py", raiz / "contratos_servitotal.py"),
-                                          ("iniciar.pyw", aqui / "iniciar.pyw")):
+                for instalado, fuente in (("agencia.py", raiz / "agencia.py"), ("iniciar.pyw", aqui / "iniciar.pyw")):
                     if (instalacion / "app" / instalado).read_bytes() != fuente.read_bytes():
                         raise RuntimeError(f"El {instalado} instalado no es el de esta versión")
 
@@ -720,7 +711,7 @@ def main():
                         evidencia["resultado"] = json.loads(respuestas[-1])
                 if not evidencia.get("resultado", {}).get("ok"):
                     raise RuntimeError("El runtime no devolvió evidencia satisfactoria de Tk, SQLite y App")
-                if len(evidencia["resultado"]["pyc_de_la_fuente"]) != 2:
+                if len(evidencia["resultado"]["pyc_de_la_fuente"]) != 1:
                     raise RuntimeError("Faltan los .pyc precompilados del programa")
 
             def comando_escritorio(evidencia):
@@ -773,8 +764,7 @@ def main():
                 evidencia["huella_antes"] = crear_base_anterior(anterior)
                 comando, inicio = comando_escritorio({})
                 usar_programa(comando, windows, evidencia, entorno=entorno, cwd=inicio,
-                              respuestas={"Traer los datos de la versión anterior": IDYES,
-                                          "Datos recuperados": "unico"})
+                              respuestas={"Traer sus datos": IDYES, "Datos recuperados": "unico"})
                 comprobar_sin_errores(datos, evidencia)
                 evidencia["datos"] = contar(datos / "agencia.db")
                 if evidencia["datos"] != {"clientes": 1, "trabajadoras": 1, "colocaciones": 1}:

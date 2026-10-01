@@ -22,18 +22,17 @@ from urllib.request import urlopen
 import uuid
 import zipfile
 
-from verificar_windows import Windows, huella_publicada
+from verificar_windows import VERSION, Windows, huella_publicada
 
 
 URL_PYTHON = "https://www.python.org/ftp/python/3.14.7/python-3.14.7-amd64.exe"
 SHA_PYTHON = "9d9eb2709ef81bf5cd30db3c2096bdbc4ea10087c22e62f27d356b36f6ae9649"
-RAIZ_ZIP = "Servitotal-1.7.2-Python"
+RAIZ_ZIP = f"Servitotal-{VERSION}-Python"
 ARCHIVOS_ZIP = {
     "Abrir Servitotal.pyw", "Diagnosticar Servitotal.py", "LEEME-INSTALAR.txt",
-    "app/agencia.py", "app/contratos_servitotal.py", "app/logo.png",
-    "app/icono.png", "app/icono.ico",
+    "app/agencia.py", "app/logo.png", "app/icono.png", "app/icono.ico",
 }
-TITULO = "Agencia de Empleos “Servitotal”"
+TITULO = "Agencia de Empleos"
 
 
 def extraer_paquete(archivo, destino, evidencia):
@@ -75,8 +74,7 @@ def extraer_paquete(archivo, destino, evidencia):
         paquete.extractall(destino)
     carpeta = destino / RAIZ_ZIP
     raiz, aqui = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent
-    pares = [(carpeta / "app" / n, raiz / n) for n in
-             ("agencia.py", "contratos_servitotal.py", "logo.png", "icono.png", "icono.ico")]
+    pares = [(carpeta / "app" / n, raiz / n) for n in ("agencia.py", "logo.png", "icono.png", "icono.ico")]
     pares.append((carpeta / "Abrir Servitotal.pyw", aqui / "abrir_python.pyw"))
     for empaquetado, fuente in pares:
         if empaquetado.read_bytes() != fuente.read_bytes():
@@ -214,7 +212,7 @@ def main():
     parser.add_argument("--zip", type=Path, required=True)
     parser.add_argument("--evidencia", type=Path, default=Path("evidencia-python-windows.json"))
     opciones = parser.parse_args()
-    informe = {"ok": False, "version": "1.7.2", "plataforma": sys.platform,
+    informe = {"ok": False, "version": VERSION, "plataforma": sys.platform,
                "fecha_utc": datetime.now(timezone.utc).isoformat(),
                "limite": "No reproduce SmartScreen ni antivirus del equipo receptor.",
                "datos": "Sólo dos arranques sobre una base ficticia en un perfil temporal.",
