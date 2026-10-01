@@ -129,6 +129,12 @@ class InstaladoresProtegidos(unittest.TestCase):
                 self.assertIn('FileOpen $R7 "$Origen" a', guardia)
                 self.assertIn('FileOpen $CerrojoInstalador "$TEMP\\Instalador.${NOMBRE}.lock" a', guardia)
                 self.assertIn("IDRETRY volver_a_comprobar", guardia)
+                # Comprobar al pulsar «Instalar» con los botones desactivados: un segundo clic durante la espera o
+                # el aviso no debe empezar la instalación por debajo del aviso (pasó en Windows con clics repetidos).
+                antes = fuente.split("Function ComprobarAntesDeInstalar", 1)[1].split("FunctionEnd", 1)[0]
+                self.assertLess(antes.index("BOTONES_DEL_ASISTENTE 0"), antes.index("Call EsperarArchivosLibres"))
+                self.assertLess(antes.index("Call EsperarArchivosLibres"), antes.index("BOTONES_DEL_ASISTENTE 1"))
+                self.assertNotIn("Call ComprobarArchivosEnUso", antes)       # su Abort dejaría los botones apagados
                 for recurso in ("agencia.db", "contratos", "respaldos", "configuracion.json", "borradores.json", "errores.log"):
                     self.assertIn(recurso, guardia)
 

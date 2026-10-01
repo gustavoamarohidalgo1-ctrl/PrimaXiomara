@@ -52,9 +52,26 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "${NOMBRE}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Spanish"
 
+!macro BOTONES_DEL_ASISTENTE ESTADO
+  GetDlgItem $R0 $HWNDPARENT 1      ; Siguiente / Instalar
+  EnableWindow $R0 ${ESTADO}
+  GetDlgItem $R0 $HWNDPARENT 2      ; Cancelar
+  EnableWindow $R0 ${ESTADO}
+  GetDlgItem $R0 $HWNDPARENT 3      ; Atrás
+  EnableWindow $R0 ${ESTADO}
+!macroend
+
 Function ComprobarAntesDeInstalar
-  Call ComprobarArchivosEnUso
-  SetErrorLevel 0     ; un «Cancelar» anterior en esta comprobación no debe quedar como código de salida
+  ; Mientras se comprueba y mientras se ve el aviso, los botones quedan desactivados: un segundo clic en «Instalar»
+  ; no vuelve a entrar aquí ni empieza a instalar por debajo del aviso (Windows ignora los botones desactivados).
+  Push $R0
+  !insertmacro BOTONES_DEL_ASISTENTE 0
+  Call EsperarArchivosLibres
+  !insertmacro BOTONES_DEL_ASISTENTE 1
+  Pop $R0
+  ${If} $EnUso == 1
+    Abort             ; eligió Cancelar: el asistente se queda en esta página
+  ${EndIf}
 FunctionEnd
 
 Function AbrirPrograma

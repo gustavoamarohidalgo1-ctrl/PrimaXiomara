@@ -82,7 +82,8 @@ Function ${PREFIJO}ProbarArchivo
   fin:
 FunctionEnd
 
-Function ${PREFIJO}ComprobarArchivosEnUso
+; $EnUso = 0 si los archivos estan libres; 1 si siguen en uso y la persona eligio Cancelar.
+Function ${PREFIJO}EsperarArchivosLibres
   Push $R6
   Push $R7
   Push $Origen
@@ -105,15 +106,18 @@ Function ${PREFIJO}ComprobarArchivosEnUso
   ocupado_aviso:
     ; Reintentar sin salir del asistente; si la ventana no se ve (quedo oculta), reiniciar la cierra.
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${NOMBRE} esta abierto. Guarde su trabajo, cierre ${NOMBRE} y pulse Reintentar.$\r$\n$\r$\nSi no ve la ventana de ${NOMBRE}, reinicie la computadora y vuelva a abrir este instalador.$\r$\n$\r$\nNo se modificaron el programa ni sus datos." /SD IDCANCEL IDRETRY volver_a_comprobar
-    Pop $Origen
-    Pop $R7
-    Pop $R6
-    SetErrorLevel 2
-    Abort
   libre:
   Pop $Origen
   Pop $R7
   Pop $R6
+FunctionEnd
+
+Function ${PREFIJO}ComprobarArchivosEnUso
+  Call ${PREFIJO}EsperarArchivosLibres
+  ${If} $EnUso == 1
+    SetErrorLevel 2
+    Abort
+  ${EndIf}
 FunctionEnd
 !macroend
 

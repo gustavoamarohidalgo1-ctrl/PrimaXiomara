@@ -55,7 +55,7 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 
 Para actualizar, abra el instalador nuevo: la instalación conserva la carpeta de datos. Si Servitotal está abierto, el instalador pide cerrarlo y pulsar Reintentar, sin cambiar nada mientras tanto. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior. Si el programa no llegara a abrir, el motivo queda en `errores_inicio.log`, dentro de la carpeta de datos (menú Inicio → Servitotal → Datos de la agencia).
 
-En **Propiedades**, el instalador 1.8.0 completo ocupa **11.828.795 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.8.0 completo ocupa **11.830.578 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
