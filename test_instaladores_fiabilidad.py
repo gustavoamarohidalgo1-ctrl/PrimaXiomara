@@ -122,8 +122,13 @@ class InstaladoresProtegidos(unittest.TestCase):
                 self.assertLess(desinstalar.index("Call un.ComprobarArchivosEnUso"), desinstalar.index("RMDir /r"))
                 self.assertLess(desinstalar.index("Call un.ComprobarDatosHeredados"), desinstalar.index("RMDir /r"))
                 guardia = (proyecto / "instaladores/construccion/archivos_en_uso.nsh").read_text(encoding="utf-8")
-                self.assertIn("RmGetList", guardia)
-                self.assertNotIn("RmShutdown", guardia)
+                # Sin complementos (ni Restart Manager ni System): se prueba abrir para escribir lo que el programa
+                # tiene cargado, como en Servicio Exclusivo.
+                self.assertNotIn("System::", guardia)
+                self.assertNotIn("rstrtmgr", guardia)
+                self.assertIn('FileOpen $R7 "$Origen" a', guardia)
+                self.assertIn('FileOpen $CerrojoInstalador "$TEMP\\Instalador.${NOMBRE}.lock" a', guardia)
+                self.assertIn("IDRETRY volver_a_comprobar", guardia)
                 for recurso in ("agencia.db", "contratos", "respaldos", "configuracion.json", "borradores.json", "errores.log"):
                     self.assertIn(recurso, guardia)
 
@@ -190,9 +195,10 @@ class PaquetesWindowsPublicados(unittest.TestCase):
         if not herramienta:
             self.skipTest("No hay 7-Zip para leer el instalador en este equipo")
         with tempfile.TemporaryDirectory(prefix="instalador-fuente-") as tmp:
-            subprocess.run([herramienta, "x", "-y", "-o" + tmp, str(RAIZ / "instaladores/Servitotal-Windows-x64.exe"),
-                            "$_13_/app/*"], check=True, capture_output=True)
-            app = Path(tmp, "$_13_", "app")
+            subprocess.run([herramienta, "x", "-y", "-o" + tmp, str(RAIZ / "instaladores/Servitotal-Windows-x64.exe")],
+                           check=True, capture_output=True)
+            # 7-Zip nombra la carpeta interna según la variable de destino del guion ($_13_, $_15_...)
+            app = next(c / "app" for c in Path(tmp).glob("$_*_") if (c / "app" / "agencia.py").is_file())
             pares = [(n, RAIZ / n) for n in self.FUENTES] + [("iniciar.pyw", self.AQUI / "iniciar.pyw")]
             for dentro, fuente in pares:
                 with self.subTest(dentro=dentro):

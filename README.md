@@ -55,7 +55,7 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 
 Para actualizar, abra el instalador nuevo: la instalación conserva la carpeta de datos. Si Servitotal está abierto, el instalador pide cerrarlo y pulsar Reintentar, sin cambiar nada mientras tanto. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior. Si el programa no llegara a abrir, el motivo queda en `errores_inicio.log`, dentro de la carpeta de datos (menú Inicio → Servitotal → Datos de la agencia).
 
-En **Propiedades**, el instalador 1.8.0 completo ocupa **11.837.758 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.8.0 completo ocupa **11.828.795 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
@@ -141,6 +141,7 @@ Ninguna de estas pruebas reproduce SmartScreen, el Control inteligente de aplica
 - Si una ficha ya guardada tiene un dato inválido, al salir se dice cuál y se ofrece volver a lo guardado.
 - La carpeta adicional de copias solo se usa si es la elegida (lleva la marca `.copias-servitotal`): no se escriben datos en otro USB que tome su letra, y uno desconectado no avisa en cada arranque. Al traer los datos de la versión anterior también se trae esa carpeta.
 - La versión se ve en el menú lateral y en `errores.log`.
+- Instalador de Windows sin complementos (plugins), como el de Servicio Exclusivo: comprueba si Servitotal está abierto intentando abrir para escritura los archivos que el programa tiene cargados, en vez de Restart Manager (con el aviso repetido, en Windows Server 2025 llegó a escribir en una carpeta equivocada), y comprueba Windows de 64 bits sin cargar nada antes de mostrar su ventana.
 - Instalador de Windows: un archivo que no se pudo escribir ya no se puede «Omitir», un instalador más viejo advierte antes de reemplazar uno más nuevo y el desinstalador aclara que las copias de Documentos y de la carpeta adicional no se borran.
 - Las pruebas nunca usan la carpeta de datos real, aunque se ejecuten desde esta carpeta. Las cuatro que comprueban que los paquetes de `instaladores/` lleven este mismo código fallan hasta que se vuelvan a generar.
 

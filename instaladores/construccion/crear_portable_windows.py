@@ -74,7 +74,9 @@ def main():
         temporal = Path(temporal)
         extraido = temporal / "extraido"
         subprocess.run([herramienta, "x", "-y", "-o" + str(extraido), str(EXE)], check=True, capture_output=True)
-        payload = extraido / "$_13_"
+        # 7-Zip nombra la carpeta interna del instalador según su variable de destino ($_13_, $_15_...): se busca
+        # la que tiene el programa en vez de fijar el número, que cambia si el guion declara otra variable.
+        payload = next(c for c in extraido.glob("$_*_") if (c / "runtime").is_dir() and (c / "app").is_dir())
         carpeta = temporal / NOMBRE
         shutil.copytree(payload / "runtime", carpeta)
         (carpeta / "pythonw.exe").rename(carpeta / "Servitotal.exe")
