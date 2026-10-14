@@ -462,34 +462,49 @@ def asistente_completo(exe, windows, evidencia, entorno, al_aviso=None):
             windows.cerrar_prueba(proceso)
 
 
-def analizar_con_defender(ruta, evidencia):
-    """Analiza con Microsoft Defender actualizado. Código 0 de MpCmdRun: sin amenazas; 2: amenaza detectada."""
+def analizar_con_defender(ruta, evidencia, intentos=3):
+    """Analiza con Microsoft Defender actualizado. MpCmdRun devuelve 0 si no hay amenazas y 2 si las hay, pero también 2
+    cuando no pudo analizar («CmdTool: Failed with hr = ...», p. ej. si su servicio se detuvo): eso no es una amenaza.
+    Entonces se vuelve a encender el servicio y se reintenta; si nunca se puede analizar, la prueba falla igual.
+    Las firmas se actualizan con MpCmdRun -SignatureUpdate: en las máquinas de GitHub, Update-MpSignature llegó a
+    detener el servicio («The remote procedure call failed»)."""
     literal = str(ruta).replace("'", "''")
     guion = (
         "$ErrorActionPreference = 'Continue'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
-        "$antes = (Get-MpComputerStatus).AntivirusSignatureVersion; "
-        "try { Update-MpSignature -ErrorAction Stop; $act = 'ok' } catch { $act = $_.Exception.Message }; "
-        "$e = Get-MpComputerStatus; "
         "$mp = Join-Path $env:ProgramFiles 'Windows Defender\\MpCmdRun.exe'; "
+        "$antes = (Get-MpComputerStatus -ErrorAction SilentlyContinue).AntivirusSignatureVersion; "
+        "$servicio = Get-Service WinDefend -ErrorAction SilentlyContinue; $reinicio = $false; "
+        "if ($servicio -and $servicio.Status -ne 'Running') { Start-Service WinDefend -ErrorAction SilentlyContinue; "
+        "Start-Sleep -Seconds 10; $reinicio = $true }; "
+        "$act = (& $mp -SignatureUpdate 2>&1 | Out-String).Trim(); "
+        "$e = Get-MpComputerStatus -ErrorAction SilentlyContinue; "
         f"$salida = & $mp -Scan -ScanType 3 -File '{literal}' -DisableRemediation 2>&1 | Out-String; "
         "$codigo = $LASTEXITCODE; "
         "[pscustomobject]@{ servicio=$e.AMServiceEnabled; antivirus=$e.AntivirusEnabled; modo=\"$($e.AMRunningMode)\"; "
-        "tiempo_real=$e.RealTimeProtectionEnabled; "
+        "tiempo_real=$e.RealTimeProtectionEnabled; reinicio=$reinicio; "
         "firmas_antes=$antes; firmas=$e.AntivirusSignatureVersion; actualizacion=$act; codigo=$codigo; "
         "salida=$salida.Trim() } | ConvertTo-Json -Compress")
-    resultado = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", guion],
-                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
-    try:
-        datos = json.loads(resultado.stdout.strip().lstrip("\ufeff"))
-    except ValueError:
-        evidencia.update(stdout=resultado.stdout[-2000:], stderr=resultado.stderr[-2000:])
-        raise RuntimeError("No se pudo ejecutar Microsoft Defender")
-    evidencia["defender"] = datos
+    evidencia["defender_intentos"] = []
+    for intento in range(intentos):
+        resultado = subprocess.run(["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", guion],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+        try:
+            datos = json.loads(resultado.stdout.strip().lstrip("\ufeff"))
+        except ValueError:
+            evidencia.update(stdout=resultado.stdout[-2000:], stderr=resultado.stderr[-2000:])
+            raise RuntimeError("No se pudo ejecutar Microsoft Defender")
+        evidencia["defender"] = datos
+        evidencia["defender_intentos"].append({k: datos.get(k) for k in ("codigo", "modo", "reinicio", "salida")})
+        salida = str(datos.get("salida") or "")
+        no_pudo = "CmdTool: Failed" in salida or datos.get("codigo") not in (0, 2)
+        if not no_pudo:
+            break
+        time.sleep(15)
+    if no_pudo:
+        raise RuntimeError("Microsoft Defender no pudo analizar el archivo (código %s): %s"
+                           % (datos.get("codigo"), salida[-300:]))
     if datos.get("codigo") == 2:
         raise RuntimeError("Microsoft Defender detectó una amenaza en " + str(ruta))
-    if datos.get("codigo") != 0:
-        raise RuntimeError("Microsoft Defender no pudo analizar el archivo (código %s)" % datos.get("codigo"))
-
 
 def asistente(exe, evidencia):
     windows = Windows()
