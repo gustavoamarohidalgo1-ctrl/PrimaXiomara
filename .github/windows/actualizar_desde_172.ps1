@@ -54,7 +54,7 @@ $r = Get-Content $json -Raw -Encoding utf8 | ConvertFrom-Json
 foreach ($a in @($r.avisos)) { Write-Host "aviso $($a.tipo): $($a.titulo) - $($a.mensaje)" }
 
 # 5) Comprobar la base actualizada y la copia previa
-& "$Instdir\runtime\python.exe" -E -s "$PSScriptRoot\comprobar_180.py" (Join-Path $Datos 'agencia.db') $Datos 2>&1 | Write-Host
+& "$Instdir\runtime\python.exe" -E -s "$PSScriptRoot\comprobar_desde_172.py" (Join-Path $Datos 'agencia.db') $Datos 2>&1 | Write-Host
 if ($LASTEXITCODE -ne 0) { Fallo 'La base de la 1.7.2 no quedó bien actualizada' }
 
 # 6) Abrir desde el acceso directo, como ella, y cerrar con la X

@@ -1,6 +1,6 @@
 # Agencia de Empleos S.T Servitotal
 
-Aplicación de escritorio para registrar clientes y trabajadoras, gestionar áreas y asignaciones, preparar y firmar contratos, cobrar comisiones y administrar garantías. **Versiones de distribución: Windows 1.8.0 · Mac 1.7.1.**
+Aplicación de escritorio para registrar clientes y trabajadoras, gestionar áreas y asignaciones, preparar y firmar contratos, cobrar comisiones y administrar garantías. **Versiones de distribución: Windows 1.9.0 · Mac 1.7.1.**
 
 ## El mismo programa que Servicio Exclusivo
 
@@ -9,9 +9,10 @@ Servitotal usa el mismo programa que Servicio Exclusivo: [igualar_con_tia.py](in
 - el nombre Servitotal, la carpeta de datos `Servitotal` y las copias en `Documentos\Respaldos Servitotal`; la carpeta adicional de copias lleva la marca `.copias-servitotal`, así los datos nunca se mezclan con los de otra agencia;
 - el contrato de Servicio Exclusivo a nombre de la agencia «S.T Servitotal», con su domicilio y su representante, Xiomara Amaro Arellano (sin RUC);
 - la comisión sin propuesta: en cada contrato se escribe el porcentaje del sueldo (o el pago único);
-- la garantía en meses, como en Servicio Exclusivo: por defecto 2; 0 = sin garantía.
+- la garantía en meses, como en Servicio Exclusivo: por defecto 2; 0 = sin garantía;
+- los **avisos** (desde la 1.9.0): en Ganancias se anotan uno por uno los avisos que la agencia pega afuera de su local (S/ 10 cada uno, se puede cambiar) y se ven la ganancia de avisos, la de colocación de personal y las finanzas del día, de su semana y de su mes.
 
-Al abrir la 1.8.0 por primera vez, después de una copia de seguridad, las garantías guardadas en días pasan a meses (30 días = 1 mes, redondeando hacia arriba), sin tocar los contratos firmados ni las fechas de fin ya calculadas. Lo que se escribió en la entrevista y en «Sueldo que pide» ya no aparece en la ficha, pero se conserva en la base y en las copias .csv.
+Al abrir por primera vez la 1.8.0 o una posterior, después de una copia de seguridad, las garantías guardadas en días pasan a meses (30 días = 1 mes, redondeando hacia arriba), sin tocar los contratos firmados ni las fechas de fin ya calculadas. Lo que se escribió en la entrevista y en «Sueldo que pide» ya no aparece en la ficha, pero se conserva en la base y en las copias .csv.
 
 Los cambios del programa se hacen en Servicio Exclusivo y se traen con `python instaladores/construccion/igualar_con_tia.py CARPETA_DE_SERVICIO_EXCLUSIVO CARPETA_DE_SERVITOTAL`. Los datos y colores de Servitotal se cambian en ese script, no en `agencia.py`: lo que se cambie solo en `agencia.py` se pierde al volver a igualar.
 
@@ -21,7 +22,7 @@ Los paquetes incluyen Python; no hace falta instalarlo por separado.
 
 | Equipo | Paquete |
 | --- | --- |
-| Windows 10 u 11 de 64 bits, **recomendado** | [Servitotal-1.8.0-Windows-portable.zip](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.8.0-Windows-portable.zip) |
+| Windows 10 u 11 de 64 bits, **recomendado** | [Servitotal-1.9.0-Windows-portable.zip](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.9.0-Windows-portable.zip) |
 | Windows 10 u 11 de 64 bits, con instalador | [Servitotal-Windows-x64.exe](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-Windows-x64.exe) |
 | Mac con chip Apple Silicon, macOS 11.0 o posterior | [Servitotal-Mac-arm64.dmg](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-Mac-arm64.dmg) |
 
@@ -32,7 +33,7 @@ Los enlaces descargan el archivo directamente. En Mac, abra el DMG y arrastre Se
 1. Descargue el ZIP. Si Edge avisa que el archivo no se descarga habitualmente, use **⋯ → Conservar**.
 2. Antes de extraerlo: **clic derecho sobre el ZIP → Propiedades**, marque **Desbloquear** si aparece y pulse **Aceptar**.
 3. **Clic derecho → Extraer todo**. Puede extraerlo en Documentos.
-4. Abra la carpeta `Servitotal-1.8.0` y haga doble clic en **Servitotal.exe**.
+4. Abra la carpeta `Servitotal-1.9.0` y haga doble clic en **Servitotal.exe**.
 
 `Servitotal.exe` es el Python oficial (`pythonw.exe`, firmado por Python Software Foundation) con otro nombre: sus bytes y su firma no cambian, y un archivo `python312._pth` hace que sólo use las carpetas del ZIP. El paquete no tiene `.bat` ni ejecutables propios sin firma: Windows ve la firma de Python Software Foundation en lugar de un programa desconocido. Para tenerlo a mano: clic derecho en `Servitotal.exe` → **Enviar a → Escritorio (crear acceso directo)**.
 
@@ -55,11 +56,11 @@ El instalador no tiene firma Authenticode de editor. Instala sólo para el usuar
 
 Para actualizar, abra el instalador nuevo: la instalación conserva la carpeta de datos. Si Servitotal está abierto, el instalador pide cerrarlo y pulsar Reintentar, sin cambiar nada mientras tanto. Si el antivirus revisa los archivos nuevos, el instalador reintenta durante unos segundos antes de rendirse, y en ese caso recupera la instalación anterior. Si el programa no llegara a abrir, el motivo queda en `errores_inicio.log`, dentro de la carpeta de datos (menú Inicio → Servitotal → Datos de la agencia).
 
-En **Propiedades**, el instalador 1.8.0 completo ocupa **11.830.956 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
+En **Propiedades**, el instalador 1.9.0 completo ocupa **11.846.014 bytes**. Si Windows detecta una amenaza concreta, conserve el texto de **Seguridad de Windows → Protección contra virus y amenazas → Historial de protección** para revisarlo.
 
 ### Windows: Python oficial instalado por separado
 
-Como alternativa, [descargue el paquete de código de Servitotal](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.8.0-Windows-Python.zip) e instale **Python 3.14.7 completo de 64 bits** desde [python.org](https://www.python.org/downloads/release/python-3147/). Elija «Windows installer (64-bit)» y mantenga «tcl/tk and IDLE», el lanzador de Python y la asociación de archivos. No use el Python de Microsoft Store: guarda los datos en una carpeta privada, y Servitotal avisa si se abre con él.
+Como alternativa, [descargue el paquete de código de Servitotal](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/raw/refs/heads/main/instaladores/Servitotal-1.9.0-Windows-Python.zip) e instale **Python 3.14.7 completo de 64 bits** desde [python.org](https://www.python.org/downloads/release/python-3147/). Elija «Windows installer (64-bit)» y mantenga «tcl/tk and IDLE», el lanzador de Python y la asociación de archivos. No use el Python de Microsoft Store: guarda los datos en una carpeta privada, y Servitotal avisa si se abre con él.
 
 Extraiga todo el ZIP y abra **Abrir Servitotal.pyw**. Este acceso utiliza `%LOCALAPPDATA%\Servitotal`, igual que el instalador. **Diagnosticar Servitotal.py** muestra los errores en consola.
 
@@ -125,6 +126,15 @@ Servitotal 1.8.0 (rama `prueba-1.8.0`, commit `517d7cb`) pasó los 46 trabajos d
   - Recibido «por WhatsApp» (marcado como descargado de Internet) y abierto con doble clic con SmartScreen y el antivirus en la nube: el asistente apareció a los 9 a 12 segundos, como la 1.7.2 publicada (14 a 17 s).
 
 Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py), [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) y los de [.github/windows](.github/windows) modifican accesos, registro, cuentas y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero. Ninguna prueba reproduce otro antivirus (McAfee, Avast...) ni el Control inteligente de aplicaciones del equipo de una usuaria.
+
+## Cambios de 1.9.0
+
+Solo en Servitotal (el programa de Servicio Exclusivo no cambia):
+
+- **Avisos.** La agencia cobra por cada aviso que pega afuera de su local. En **Ganancias → Nuevo aviso** se anota cada uno: la fecha (la del día que se está viendo), de quién es (opcional, por ejemplo «Sra. Rosa, busca niñera») y lo que pagaron (S/ 10 propuestos). Los avisos del día se ven en una lista donde se pueden corregir o eliminar (antes de eliminar se guarda una copia de seguridad).
+- **Ganancias** muestra arriba la ganancia total, la **ganancia de colocación de personal** (comisiones cobradas), la **ganancia de avisos** y lo pendiente de cobro. En una ventana angosta (1024×768) las cuatro cifras van de dos en dos para que ningún monto quede cortado.
+- **Finanzas del día**, en Ganancias: cuántos avisos y cuánto dejaron, cuánto personal se colocó (asignaciones hechas ese día) y cuánto se cobró en comisiones ese día, con el total; también de su semana (de lunes a domingo) y de su mes. Las flechas pasan al día anterior o al siguiente y «Hoy» vuelve al día de hoy. Lo que antes eran las cifras «Cobrado esta semana» y «Cobrado este mes» está ahora en «Ganancia de colocación de personal» de la semana y del mes.
+- Los avisos se guardan en la misma base (una tabla nueva): entran en las copias de seguridad, en las restauraciones y en la exportación a Excel (`Avisos.csv`). La primera vez que se abre la 1.9.0 se guarda una copia antes de agregar esa tabla; lo demás no cambia.
 
 ## Cambios de 1.8.0
 

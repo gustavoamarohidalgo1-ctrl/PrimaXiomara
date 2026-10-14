@@ -780,7 +780,7 @@ class MotorDeCopias(unittest.TestCase):
         with closing(sqlite3.connect(antigua)) as con, con:
             con.execute("CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT)")
             con.execute("INSERT INTO clientes (nombre) VALUES ('Ana')")
-        self.assertEqual(contar_datos(antigua), {"clientes": 1, "trabajadoras": 0, "colocaciones": 0})
+        self.assertEqual(contar_datos(antigua), {"clientes": 1, "trabajadoras": 0, "colocaciones": 0, "avisos": 0})
         self.assertTrue(hay_datos(antigua))
 
     def test_una_base_ocupada_no_se_toma_por_vacia(self):
@@ -1027,7 +1027,7 @@ class AreasEnLaBase(unittest.TestCase):
         self.assertEqual(agencia.TIPOS_SERVICIO, list(agencia.AREAS_INICIALES))
         db.con.close()
         self.assertFalse(hay_datos(self.ruta))                     # las áreas iniciales no son «datos» de la agencia
-        self.assertEqual(set(contar_datos(self.ruta)), {"clientes", "trabajadoras", "colocaciones"})
+        self.assertEqual(set(contar_datos(self.ruta)), {"clientes", "trabajadoras", "colocaciones", "avisos"})
 
     def test_una_base_antigua_recibe_las_areas_una_sola_vez(self):
         with closing(sqlite3.connect(self.ruta)) as con, con:

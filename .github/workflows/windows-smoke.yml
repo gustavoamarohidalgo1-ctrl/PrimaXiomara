@@ -66,7 +66,7 @@ jobs:
 
       - name: Abrir Servitotal.exe del ZIP sin tocar datos anteriores y diagnosticar
         shell: pwsh
-        run: python instaladores/construccion/verificar_portable_windows.py --zip instaladores/Servitotal-1.8.0-Windows-portable.zip --evidencia evidencia-portable-windows.json
+        run: python instaladores/construccion/verificar_portable_windows.py --zip instaladores/Servitotal-1.9.0-Windows-portable.zip --evidencia evidencia-portable-windows.json
 
       - name: Conservar evidencia del ZIP
         if: always()

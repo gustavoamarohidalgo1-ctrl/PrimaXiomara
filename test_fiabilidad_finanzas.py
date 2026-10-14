@@ -331,8 +331,10 @@ class ResumenDecimal(unittest.TestCase):
         root.withdraw()
         try:
             ag.aplicar_tema(root)
-            resumen = ag.resumen_ganancias(self.filas(["1e308", "1e308"]), [], date(2026, 9, 29))
+            resumen = ag.resumen_con_avisos(ag.resumen_ganancias(self.filas(["1e308", "1e308"]), [],
+                                                                 date(2026, 9, 29)), [])
             app = SimpleNamespace(db=SimpleNamespace(), resumen_financiero=lambda: resumen,
+                                  finanzas=lambda dia: ag.finanzas_del_dia([], [], dia),
                                   mostrar=mock.Mock(), comisiones=None)
             pagina = ag.PaginaGanancias(root, app)
             pagina.refrescar()

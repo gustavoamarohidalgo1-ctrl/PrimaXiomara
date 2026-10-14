@@ -1,4 +1,4 @@
-"""Después de actualizar Servitotal 1.7.2 -> 1.8.0 y abrirlo: datos completos y garantías en meses."""
+"""Después de actualizar Servitotal 1.7.2 a la versión nueva y abrirlo: datos completos y garantías en meses."""
 import glob
 import os
 import sqlite3
@@ -24,4 +24,4 @@ v = sqlite3.connect(copias[0])
 assert v.execute("SELECT meses_garantia FROM colocaciones WHERE id = 1").fetchone()[0] in ("", None), \
     "la copia previa no es la base de 1.7.2"
 v.close()
-print("Servitotal 1.7.2 -> 1.8.0: datos completos, garantías en meses y copia previa", os.path.basename(copias[0]))
+print("Servitotal 1.7.2 -> version nueva: datos completos, garantias en meses y copia previa", os.path.basename(copias[0]))

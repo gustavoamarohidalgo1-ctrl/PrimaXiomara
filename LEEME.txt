@@ -1,6 +1,6 @@
 AGENCIA DE EMPLEOS "S.T SERVITOTAL" - Programa para Windows y Mac
 =================================================================
-Version de distribucion: Windows 1.8.0 - Mac 1.7.1.
+Version de distribucion: Windows 1.9.0 - Mac 1.7.1.
 
 SERVITOTAL Y SERVICIO EXCLUSIVO
   Servitotal usa el mismo programa que Servicio Exclusivo:
@@ -15,24 +15,27 @@ SERVITOTAL Y SERVICIO EXCLUSIVO
   - Comision sin propuesta: en cada contrato se escribe el porcentaje.
   - Garantia en meses, como en Servicio Exclusivo: por defecto 2; 0 = sin
     garantia.
-  Al abrir la version 1.8.0 por primera vez, despues de una copia de
-  seguridad, las garantias guardadas en dias pasan a meses (30 dias = 1 mes,
-  redondeando hacia arriba), sin tocar los contratos firmados ni las fechas de
+  - Avisos (desde la 1.9.0): en Ganancias se anotan los avisos que la agencia
+    pega afuera de su local (S/ 10 cada uno) y se ve lo que dejan, junto con
+    las finanzas del dia, de la semana y del mes.
+  Al abrir por primera vez la version 1.8.0 o posterior, despues de una
+  copia de seguridad, las garantias guardadas en dias pasan a meses (30 dias =
+  1 mes, redondeando hacia arriba), sin tocar los contratos firmados ni las fechas de
   fin ya calculadas. Lo que se escribio en la entrevista y en "Sueldo que pide"
   ya no aparece en la ficha, pero se conserva en la base y en las copias .csv.
-  El codigo de esta carpeta es la version 1.8.0 y esta guia la describe; los
-  paquetes de Windows de la carpeta instaladores tambien son 1.8.0 (el de Mac
+  El codigo de esta carpeta es la version 1.9.0 y esta guia la describe; los
+  paquetes de Windows de la carpeta instaladores tambien son 1.9.0 (el de Mac
   sigue en 1.7.1).
   Los cambios del programa se hacen en Servicio Exclusivo y se traen con
   igualar_con_tia.py. Los datos y colores de Servitotal se cambian en ese
   script: lo que se cambie solo en agencia.py se pierde al volver a igualar.
 
 WINDOWS: ZIP SIN INSTALAR (RECOMENDADO)
-  Servitotal-1.8.0-Windows-portable.zip incluye Python y todos los recursos.
+  Servitotal-1.9.0-Windows-portable.zip incluye Python y todos los recursos.
   1. Antes de extraer: clic derecho sobre el ZIP > Propiedades > marque
      "Desbloquear" (si aparece) > Aceptar.
   2. Clic derecho sobre el ZIP > Extraer todo (por ejemplo en Documentos).
-  3. Abra la carpeta Servitotal-1.8.0 y haga doble clic en Servitotal.exe.
+  3. Abra la carpeta Servitotal-1.9.0 y haga doble clic en Servitotal.exe.
   Servitotal.exe es el Python oficial (pythonw.exe, firmado por Python
   Software Foundation) con otro nombre. El ZIP no tiene .bat ni ejecutables
   propios sin firma, asi que funciona tambien donde Windows 11 bloquea
@@ -60,7 +63,7 @@ DATOS DE LA VERSION ANTERIOR
   anterior.
 
 ABRIR CON PYTHON OFICIAL INSTALADO POR SEPARADO
-  Servitotal-1.8.0-Windows-Python.zip contiene solo codigo, recursos y ayuda.
+  Servitotal-1.9.0-Windows-Python.zip contiene solo codigo, recursos y ayuda.
   Instale Python 3.14.7 completo: Windows installer (64-bit) de
   https://www.python.org/downloads/release/python-3147/
   Mantenga tcl/tk and IDLE, el lanzador y la asociacion de archivos con Python.
@@ -135,7 +138,7 @@ INSTALADORES
   No hace falta desactivar Defender ni agregar exclusiones. Si se detecta un
   virus concreto, conserve el texto de Seguridad de Windows > Proteccion
   contra virus y amenazas > Historial de proteccion para revisarlo.
-  En Propiedades, el instalador 1.8.0 completo ocupa 11.830.956 bytes.
+  En Propiedades, el instalador 1.9.0 completo ocupa 11.846.014 bytes.
   Si la descarga quedo incompleta, descargue nuevamente el archivo completo.
   El instalador 1.8.0 se probo en Windows Server 2022 y 2025 (46 pruebas,
   todas correctas): con clics y en silencio, sobre la 1.7.1 abierta (avisa y
@@ -188,9 +191,16 @@ SECCIONES
                 imprime ambos ("S/ 300.00, equivalente al veinte por ciento
                 (20 %) del sueldo mensual pactado de S/ 1,500.00"). Marcar como
                 pagada o cambiar sueldo, porcentaje o monto.
-  Ganancias     Resumen de comisiones cobradas y pendientes, ingresos
-                por area y ultimos pagos. No calcula ganancia neta
-                porque el programa no registra gastos.
+  Ganancias     Ganancia total, ganancia de colocacion de personal
+                (comisiones cobradas), ganancia de avisos y pendiente de cobro.
+                Boton "Nuevo aviso": fecha, de quien es (opcional) y monto
+                (S/ 10 propuesto) de cada aviso pegado afuera del local.
+                "Finanzas del dia": avisos, ganancia de avisos, personal
+                colocado (asignaciones hechas ese dia), comisiones cobradas
+                ese dia y total, del dia, de su semana (lunes a domingo) y de
+                su mes; flechas para ver otro dia y la lista de avisos del dia
+                (Corregir / Eliminar). Tambien ingresos por area y ultimos
+                pagos. No calcula ganancia neta porque no registra gastos.
   Garantias     Solo clientes que pidieron garantia. Los MESES se escriben al
                 preparar el contrato (por defecto 2; cualquier numero; 0 = sin
                 garantia). Corren desde la
@@ -241,7 +251,7 @@ AJUSTES (al inicio de agencia.py)
   agencia.py se genera con instaladores/construccion/igualar_con_tia.py:
   cambie estos ajustes en ese script o se perderan al volver a igualar.
 
-ACTUALIZAR CON SEGURIDAD (VERSION 1.8.0)
+ACTUALIZAR CON SEGURIDAD (VERSION 1.9.0)
   Guarde su trabajo y cierre el programa antes de actualizarlo en Mac o Windows.
   Windows comprueba si los archivos estan en uso y bloquea la actualizacion o
   desinstalacion si encuentra una instancia abierta o no puede verificarlo.

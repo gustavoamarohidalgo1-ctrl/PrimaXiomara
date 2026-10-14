@@ -30,7 +30,10 @@
 !/.github/windows/actualizar_desde_172.ps1
 !/.github/windows/arranque.py
 !/.github/windows/como_equipo_de_casa.ps1
-!/.github/windows/comprobar_180.py
+!/.github/windows/comprobar_desde_172.py
+!/.github/windows/comprobar_desde_180.py
+!/.github/windows/datos_180.py
+!/.github/windows/actualizar_desde_180.ps1
 !/.github/windows/datos_172.py
 !/.github/windows/doble_clic_descargado.ps1
 !/.github/windows/humo.py
@@ -56,8 +59,8 @@
 /instaladores/*
 !/instaladores/Servitotal-Windows-x64.exe
 !/instaladores/Servitotal-Mac-arm64.dmg
-!/instaladores/Servitotal-1.8.0-Windows-portable.zip
-!/instaladores/Servitotal-1.8.0-Windows-Python.zip
+!/instaladores/Servitotal-1.9.0-Windows-portable.zip
+!/instaladores/Servitotal-1.9.0-Windows-Python.zip
 !/instaladores/SHA256SUMS.txt
 !/instaladores/construccion/
 /instaladores/construccion/*

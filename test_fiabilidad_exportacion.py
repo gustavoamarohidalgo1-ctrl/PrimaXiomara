@@ -19,7 +19,7 @@ import agencia
 
 
 class FiabilidadExportacionTest(unittest.TestCase):
-    NOMBRES = ("Clientes.csv", "Trabajadoras.csv", "Asignaciones.csv", "Areas.csv")
+    NOMBRES = ("Clientes.csv", "Trabajadoras.csv", "Asignaciones.csv", "Areas.csv", "Avisos.csv")
 
     def setUp(self):
         self.temporal = tempfile.TemporaryDirectory(prefix="csv-ficticios-")

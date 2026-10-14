@@ -221,6 +221,28 @@ def main():
             app.mostrar(pagina)
             root.update()
 
+    @paso("anotar avisos y ver las finanzas del día")
+    def avisos():
+        # Servitotal: lo que pagan por cada aviso pegado afuera del local, anotado desde Ganancias.
+        app.mostrar(app.ganancias)
+        root.update()
+        panel = app.ganancias.finanzas
+        for detalle in ("Sra. Ñusta Peña, busca niñera", ""):
+            dialogo = panel.nuevo_aviso()
+            root.update()
+            dialogo.valores["detalle"].set(detalle)
+            dialogo.guardar()
+            root.update()
+        if len(app.db.todos("avisos")) != 2:
+            raise AssertionError("No se anotaron los avisos")
+        textos = {clave: panel.celdas[clave, "dia"].cget("text") for clave in ("avisos", "ganancia_avisos", "total")}
+        if textos["avisos"] != "2" or textos["ganancia_avisos"] != agencia.dinero(20):
+            raise AssertionError(f"Finanzas del día inesperadas: {textos}")
+        if app.ganancias.cifras["avisos_total"].cget("text") != agencia.dinero(20):
+            raise AssertionError("La ganancia de avisos no se ve en Ganancias")
+        anotar(f"finanzas del día: {textos}")
+        captura("ganancias")
+
     @paso("abrir un área")
     def area():
         tipo = next(iter(agencia.AREAS))
@@ -296,7 +318,8 @@ def main():
                               ("Firmas", lambda: agencia.DialogoFirmas(app.contratos, c, cli, tra, lambda f: True)),
                               ("Imprimir", lambda: agencia.DialogoImprimir(app.contratos, c["id"], True)),
                               ("Áreas", lambda: agencia.DialogoAreas(root, app)),
-                              ("Copias de seguridad", lambda: agencia.DialogoCopias(root, app))):
+                              ("Copias de seguridad", lambda: agencia.DialogoCopias(root, app)),
+                              ("Nuevo aviso", lambda: app.ganancias.finanzas.nuevo_aviso())):
             antes = set(root.winfo_children())
             abrir()
             root.update()
@@ -327,7 +350,7 @@ def main():
         if sys.platform == "win32":
             agencia.abrir_carpeta(agencia.CARPETA)
 
-    for accion in (recorrer, cliente, trabajadora, asignar, area, copia, copia_fondo, exportar,
+    for accion in (recorrer, cliente, trabajadora, asignar, avisos, area, copia, copia_fondo, exportar,
                    restaurar, imprimir, dialogos, carpeta):
         accion()
         root.update()

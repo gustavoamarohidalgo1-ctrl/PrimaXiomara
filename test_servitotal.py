@@ -2,6 +2,7 @@
 
 Lo demás es el programa de Servicio Exclusivo tal cual (instaladores/construccion/igualar_con_tia.py lo copia) y lo
 prueban las mismas pruebas de la tía. Todo con datos ficticios en carpetas temporales."""
+import csv
 import difflib
 import html
 import importlib.util
@@ -14,7 +15,9 @@ import struct
 import tempfile
 import unittest
 import zipfile
-from contextlib import closing
+from contextlib import ExitStack, closing
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -620,6 +623,286 @@ class AlFrenteAlAbrir(unittest.TestCase):
     def test_main_lo_llama_al_abrir(self):
         principal = agencia.main.__code__.co_names
         self.assertIn("traer_al_frente", principal)
+
+
+class AvisosYFinanzasDelDia(unittest.TestCase):
+    """La agencia cobra S/ 10 por cada aviso que pega afuera de su local. En Ganancias se ven la ganancia de avisos, la
+    de colocación de personal y las finanzas del día (con su semana y su mes)."""
+
+    DIA = date(2026, 10, 14)        # miércoles: su semana va del lunes 12 al domingo 18 de octubre
+
+    def aviso(self, id_, fecha, monto="10.00", detalle="", registrado=""):
+        return {"id": id_, "fecha": fecha, "monto": monto, "detalle": detalle, "registrado": registrado}
+
+    def test_validar_aviso(self):
+        datos, error = agencia.validar_aviso({"fecha": "14/10/2026", "detalle": "  Sra.   Rosa,  niñera ",
+                                              "monto": agencia.PRECIO_AVISO})
+        self.assertIsNone(error)
+        self.assertEqual(datos, {"fecha": "14/10/2026", "detalle": "Sra. Rosa, niñera", "monto": "10.00"})
+        for escrito, guardado in (("10", "10.00"), ("10,50", "10.50"), ("S/ 15", "15.00"), (" 7.5 ", "7.50"),
+                                  ("S/. 10", "10.00"), ("S/.10", "10.00")):
+            self.assertEqual(agencia.validar_aviso({"fecha": "14/10/2026", "monto": escrito})[0]["monto"], guardado)
+        for fecha in ("", "32/10/2026", "2026-10-14", "mañana"):
+            datos, error = agencia.validar_aviso({"fecha": fecha, "monto": "10"})
+            self.assertIsNone(datos)
+            self.assertIn("fecha", error)
+        for monto in ("", "0", "-10", "diez", "nan", "inf", "0.004", "S/. 0", "1e-5"):
+            datos, error = agencia.validar_aviso({"fecha": "14/10/2026", "monto": monto})
+            self.assertIsNone(datos, monto)
+            self.assertIn("cuánto pagaron", error)
+        self.assertIn("parece un error", agencia.validar_aviso({"fecha": "14/10/2026", "monto": "1000000"})[1])
+        self.assertEqual(len(agencia.validar_aviso({"fecha": "14/10/2026", "monto": "10",
+                                                    "detalle": "x" * 500})[0]["detalle"]), 120)
+
+    def test_finanzas_del_dia_su_semana_y_su_mes(self):
+        avisos = [self.aviso(1, "14/10/2026", registrado="2026-10-14 16:05:00", detalle="Tarde"),
+                  self.aviso(2, "14/10/2026", registrado="2026-10-14 09:30:00", detalle="Mañana"),
+                  self.aviso(3, "14/10/2026", monto="diez"),            # se cuenta, pero sin monto no suma
+                  self.aviso(4, "12/10/2026"), self.aviso(5, "19/10/2026"),  # misma semana / otra semana del mes
+                  self.aviso(6, "30/09/2026"), self.aviso(7, "sin fecha")]   # otro mes / no cuenta
+        colocaciones = [
+            {"fecha_enlace": "14/10/2026", "comision": "300", "comision_pagada": "1", "fecha_pago": "15/10/2026"},
+            {"fecha_enlace": "13/10/2026", "comision": "200", "comision_pagada": "1", "fecha_pago": "14/10/2026"},
+            {"fecha_enlace": "14/10/2026", "comision": "500", "comision_pagada": "0", "fecha_pago": ""},
+            {"fecha_enlace": "01/09/2026", "comision": "-5", "comision_pagada": "1", "fecha_pago": "14/10/2026"},
+            {"fecha_enlace": "", "comision": "abc", "comision_pagada": "1", "fecha_pago": "14/10/2026"},
+            {"fecha_enlace": "14/10/2026", "estado": "Cancelada", "comision": "0", "comision_pagada": "0"}]   # deshecha
+        finanzas = agencia.finanzas_del_dia(colocaciones, avisos, self.DIA)
+        dia, semana, mes = (finanzas["periodos"][p] for p in ("dia", "semana", "mes"))
+        self.assertEqual((dia["avisos"], dia["ganancia_avisos"], dia["colocados"], dia["ganancia_colocacion"],
+                          dia["total"]), (3, Decimal("20"), 2, Decimal("200"), Decimal("220")))
+        self.assertEqual((semana["avisos"], semana["ganancia_avisos"], semana["colocados"],
+                          semana["ganancia_colocacion"], semana["total"]),
+                         (4, Decimal("30"), 3, Decimal("500"), Decimal("530")))
+        self.assertEqual((mes["avisos"], mes["ganancia_avisos"], mes["colocados"], mes["ganancia_colocacion"],
+                          mes["total"]), (5, Decimal("40"), 3, Decimal("500"), Decimal("540")))
+        self.assertEqual([a["id"] for a in finanzas["avisos_del_dia"]], [3, 2, 1])   # en el orden en que se anotaron
+        self.assertEqual(finanzas["desde_hasta"]["semana"], (date(2026, 10, 12), date(2026, 10, 18)))
+        self.assertEqual(agencia.nombre_del_dia(self.DIA), "miércoles 14/10/2026")
+
+    def test_semanas_y_meses_en_sus_bordes(self):
+        self.assertEqual(agencia.periodos_de(date(2028, 2, 10))["mes"], (date(2028, 2, 1), date(2028, 2, 29)))
+        self.assertEqual(agencia.periodos_de(date(2026, 12, 31))["mes"], (date(2026, 12, 1), date(2026, 12, 31)))
+        self.assertEqual(agencia.periodos_de(date(2026, 11, 1))["semana"], (date(2026, 10, 26), date(2026, 11, 1)))
+        self.assertEqual(agencia.periodos_de(date(2026, 10, 12))["semana"], (date(2026, 10, 12), date(2026, 10, 18)))
+
+    def test_resumen_de_ganancias_con_avisos(self):
+        avisos = [self.aviso(1, "14/10/2026"), self.aviso(2, "14/10/2026", monto="10.50"),
+                  self.aviso(3, "14/10/2026", monto="0")]
+        resumen = agencia.resumen_con_avisos({"cobrado_total": 300.1, "por_cobrar": 0.0}, avisos)
+        self.assertEqual((resumen["avisos_total"], resumen["ganancia_total"]), (20.5, 320.6))
+        self.assertIsInstance(resumen["ganancia_total"], float)
+        self.assertEqual(agencia.dinero(resumen["ganancia_total"]), "S/ 320.60")
+        grande = agencia.resumen_con_avisos({"cobrado_total": Decimal("2e308")}, avisos)    # resumen desbordado
+        self.assertEqual(grande["ganancia_total"], Decimal("2e308") + Decimal("20.5"))
+        self.assertIsInstance(grande["avisos_total"], Decimal)
+        self.assertNotIn("inf", agencia.dinero(grande["ganancia_total"]).lower())
+
+    def test_una_base_anterior_recibe_la_tabla_de_avisos_con_copia_previa(self):
+        with tempfile.TemporaryDirectory(prefix="servitotal-avisos-") as carpeta:
+            ruta = os.path.join(carpeta, "agencia.db")
+            db = BaseDatos(ruta)
+            cliente = db.insertar("clientes", {"nombre": "Cliente ficticio", "telefono": "1"})
+            db.con.close()
+            with closing(sqlite3.connect(ruta)) as con, con:      # así era la base de Servitotal 1.8.0
+                con.execute("DROP TABLE avisos")
+            self.assertTrue(esquema_desactualizado(ruta))         # al abrirla, primero se guarda una copia
+            db = BaseDatos(ruta)
+            try:
+                self.assertEqual(db.todos("avisos"), [])
+                self.assertEqual(db.uno("clientes", cliente)["nombre"], "Cliente ficticio")
+                db.insertar("avisos", {"fecha": "14/10/2026", "monto": "10.00"})
+            finally:
+                db.con.close()
+            self.assertFalse(esquema_desactualizado(ruta))
+            self.assertEqual(agencia.contar_datos(ruta)["avisos"], 1)
+            self.assertTrue(agencia.hay_datos(ruta))               # los avisos también son datos de la agencia
+
+    def test_la_exportacion_a_excel_trae_los_avisos(self):
+        with tempfile.TemporaryDirectory(prefix="servitotal-avisos-") as carpeta:
+            ruta = os.path.join(carpeta, "agencia.db")
+            db = BaseDatos(ruta)
+            db.insertar("avisos", {"fecha": "14/10/2026", "detalle": "Sra. Rosa, niñera", "monto": "10.00",
+                                   "registrado": "2026-10-14 09:30:00"})
+            db.con.close()
+            agencia.exportar_legible(ruta, os.path.join(carpeta, "csv"))
+            with open(os.path.join(carpeta, "csv", "Avisos.csv"), encoding="utf-8-sig") as archivo:
+                filas = list(csv.reader(archivo))
+            self.assertEqual(filas[0], ["id", "fecha", "detalle", "monto", "registrado"])
+            self.assertEqual(filas[1][1:4], ["14/10/2026", "Sra. Rosa, niñera", "10.00"])
+
+
+class GananciasConAvisos(unittest.TestCase):
+    """Ganancias con la ventana real (Tk y SQLite reales, datos ficticios en una carpeta temporal)."""
+
+    def setUp(self):
+        self.temporal = tempfile.TemporaryDirectory(prefix="servitotal-ganancias-")
+        carpeta = Path(self.temporal.name)
+        self.parches = ExitStack()
+        for nombre, ruta in (("DB_PATH", "agencia.db"), ("CONFIG_PATH", "configuracion.json"),
+                             ("CARPETA_RESPALDOS", "respaldos"), ("CARPETA_CONTRATOS", "contratos"),
+                             ("ERRORES_PATH", "errores.log")):
+            self.parches.enter_context(mock.patch.object(agencia, nombre, str(carpeta / ruta)))
+        self.parches.enter_context(mock.patch.object(agencia, "carpetas_externas", return_value=[]))
+        self.parches.enter_context(mock.patch.object(agencia, "maximizar", return_value=None))
+        self.parches.enter_context(mock.patch.object(agencia.App, "hacer_copia_en_segundo_plano", return_value=None))
+        self.parches.enter_context(mock.patch.object(agencia.App, "vigilar_cambios", return_value=None))
+        self.respuestas = []
+        self.avisos_mostrados = []
+        for nombre in ("showinfo", "showwarning", "showerror"):
+            self.parches.enter_context(mock.patch.object(agencia.messagebox, nombre, side_effect=lambda titulo, texto, **kw:
+                                                         self.avisos_mostrados.append((titulo, texto))))
+        self.parches.enter_context(mock.patch.object(agencia.messagebox, "askyesno", side_effect=lambda titulo, texto, **kw:
+                                                     self.avisos_mostrados.append((titulo, texto)) or self.respuestas.pop(0)))
+        try:
+            self.root = agencia.tk.Tk()
+        except agencia.tk.TclError:
+            self.parches.close()
+            self.temporal.cleanup()
+            self.skipTest("Tk necesita una pantalla disponible")
+        self.root.withdraw()
+        self.app = agencia.App(self.root)
+        self.db = self.app.db
+        self.pagina = self.app.ganancias
+
+    def tearDown(self):
+        for tarea in self.root.tk.call("after", "info"):
+            self.root.tk.call("after", "cancel", tarea)
+        self.db.con.close()
+        self.root.destroy()
+        self.parches.close()
+        agencia.restablecer_areas()
+        self.temporal.cleanup()
+
+    def ventanas_de_aviso(self):
+        return [w for w in self.root.winfo_children() if isinstance(w, agencia.DialogoAviso)]
+
+    def test_las_cifras_dicen_ganancia_de_avisos_y_de_colocacion(self):
+        cifras = self.pagina.cifras
+        self.assertEqual(list(cifras), ["ganancia_total", "cobrado_total", "avisos_total", "por_cobrar"])
+        cliente = self.db.insertar("clientes", {"nombre": "Cliente ficticio", "telefono": "1"})
+        trabajadora = self.db.insertar("trabajadoras", {"nombre": "Trabajadora ficticia", "telefono": "2"})
+        self.db.insertar("colocaciones", {"cliente_id": str(cliente), "trabajadora_id": str(trabajadora),
+                                          "estado": "Activa", "comision": "300", "comision_pagada": "1",
+                                          "fecha_pago": agencia.hoy(), "fecha_enlace": agencia.hoy()})
+        for _ in range(2):
+            self.app.guardar_aviso({"fecha": agencia.hoy(), "detalle": "", "monto": "10.00"})
+        self.app.mostrar(self.pagina)
+        self.root.update_idletasks()
+        self.assertEqual(cifras["ganancia_total"].cget("text"), "S/ 320.00")
+        self.assertEqual(cifras["cobrado_total"].cget("text"), "S/ 300.00")
+        self.assertEqual(cifras["avisos_total"].cget("text"), "S/ 20.00")
+        panel = self.pagina.finanzas
+        self.assertEqual(panel.celdas["avisos", "dia"].cget("text"), "2")
+        self.assertEqual(panel.celdas["ganancia_avisos", "dia"].cget("text"), "S/ 20.00")
+        self.assertEqual(panel.celdas["colocados", "dia"].cget("text"), "1")
+        self.assertEqual(panel.celdas["ganancia_colocacion", "dia"].cget("text"), "S/ 300.00")
+        self.assertEqual(panel.celdas["total", "dia"].cget("text"), "S/ 320.00")
+        self.assertEqual(len(panel.lista.get_children()), 2)
+        self.assertTrue(panel.etiqueta_dia.cget("text").startswith("hoy, "))
+
+    def test_anotar_corregir_y_borrar_un_aviso_desde_la_ventana(self):
+        self.app.mostrar(self.pagina)
+        panel = self.pagina.finanzas
+        dialogo = panel.nuevo_aviso()
+        self.assertEqual(dialogo.valores["fecha"].get(), agencia.hoy())
+        self.assertEqual(dialogo.valores["monto"].get(), "10.00")
+        dialogo.valores["detalle"].set("Sra. Rosa, busca niñera")
+        dialogo.valores["monto"].set("0")
+        dialogo.guardar()                                         # monto inválido: avisa y no guarda
+        self.assertTrue(dialogo.winfo_exists())
+        self.assertEqual(self.db.todos("avisos"), [])
+        self.assertIn("cuánto pagaron", self.avisos_mostrados.pop()[1])
+        dialogo.valores["monto"].set("10")
+        dialogo.guardar()
+        self.assertFalse(self.ventanas_de_aviso())
+        aviso = self.db.todos("avisos")[0]
+        self.assertEqual((aviso["fecha"], aviso["detalle"], aviso["monto"]),
+                         (agencia.hoy(), "Sra. Rosa, busca niñera", "10.00"))
+        self.assertRegex(aviso["registrado"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        self.assertEqual(panel.lista.get_children(), (str(aviso["id"]),))
+
+        ayer = date.today() - timedelta(days=1)                   # corregir: se anotó el día equivocado
+        panel.lista.selection_set(str(aviso["id"]))
+        dialogo = panel.corregir()
+        dialogo.valores["fecha"].set(ayer.strftime("%d/%m/%Y"))
+        dialogo.guardar()
+        self.assertEqual(self.db.uno("avisos", aviso["id"])["fecha"], ayer.strftime("%d/%m/%Y"))
+        self.assertEqual(panel.dia, ayer)                          # el panel muestra el día del aviso
+        self.assertEqual(panel.celdas["avisos", "dia"].cget("text"), "1")
+        panel.ir_a_hoy()
+        self.assertEqual(panel.celdas["avisos", "dia"].cget("text"), "0")
+        self.assertEqual(panel.lista.get_children(), ())
+        panel.mover(-1)
+        self.assertEqual(panel.lista.get_children(), (str(aviso["id"]),))
+
+        panel.lista.selection_set(str(aviso["id"]))
+        self.respuestas.append(False)                              # «No»: no se borra
+        panel.eliminar()
+        self.assertEqual(len(self.db.todos("avisos")), 1)
+        self.respuestas.append(True)                               # «Sí»: copia previa y se borra
+        with mock.patch.object(self.app, "copia_antes_de_borrar", return_value=True) as copia:
+            panel.lista.selection_set(str(aviso["id"]))
+            panel.eliminar()
+        copia.assert_called_once_with()
+        self.assertEqual(self.db.todos("avisos"), [])
+        self.assertEqual(panel.lista.get_children(), ())
+
+    def test_las_cifras_van_en_una_fila_solo_si_caben_enteras(self):
+        bordes = [etiqueta.master.master for etiqueta in self.pagina.cifras.values()]
+        posicion = lambda: [(int(b.grid_info()["row"]), int(b.grid_info()["column"])) for b in bordes]
+        self.pagina.cifras["ganancia_total"].configure(text="S/ 1,234,567.89")    # una cifra larga pide más
+        self.root.update_idletasks()
+        pide = self.pagina.ancho_por_cifra()
+        self.assertGreater(pide, self.pagina.cifras["ganancia_total"].winfo_reqwidth())
+        self.pagina.acomodar_cifras(4 * pide)
+        self.assertEqual(posicion(), [(0, 0), (0, 1), (0, 2), (0, 3)])
+        self.pagina.acomodar_cifras(4 * pide - 30)                    # ventana angosta o letra grande (125-150 %)
+        self.assertEqual(posicion(), [(0, 0), (0, 1), (1, 0), (1, 1)])
+        self.pagina.acomodar_cifras(pide)
+        self.assertEqual(posicion(), [(0, 0), (1, 0), (2, 0), (3, 0)])
+        self.pagina.acomodar_cifras(5 * pide)
+        self.assertEqual(posicion(), [(0, 0), (0, 1), (0, 2), (0, 3)])
+
+    def test_la_lista_conserva_el_aviso_elegido_al_refrescar(self):
+        self.app.mostrar(self.pagina)
+        panel = self.pagina.finanzas
+        primero = self.app.guardar_aviso({"fecha": agencia.hoy(), "detalle": "Primero", "monto": "10.00"})
+        panel.lista.selection_set(str(primero))
+        self.app.guardar_aviso({"fecha": agencia.hoy(), "detalle": "Segundo", "monto": "10.00"})   # p. ej. otra ventana
+        self.assertEqual(len(panel.lista.get_children()), 2)
+        self.assertEqual(panel.lista.selection(), (str(primero),))
+
+    def test_corregir_o_eliminar_un_aviso_que_otra_ventana_elimino(self):
+        self.app.mostrar(self.pagina)
+        panel = self.pagina.finanzas
+        aviso = self.db.uno("avisos", self.app.guardar_aviso({"fecha": agencia.hoy(), "detalle": "", "monto": "10.00"}))
+        panel.lista.selection_set(str(aviso["id"]))
+        dialogo = panel.corregir()
+        self.db.eliminar("avisos", aviso["id"])                       # la otra ventana lo borró
+        dialogo.valores["monto"].set("15")
+        dialogo.guardar()
+        self.assertEqual(self.db.todos("avisos"), [])                  # no se vuelve a crear
+        self.assertIn("ya no existe", self.avisos_mostrados.pop()[1])
+        self.assertFalse(self.ventanas_de_aviso())
+        self.assertFalse(self.app.eliminar_aviso(aviso))               # y eliminarlo solo avisa
+        self.assertIn("ya no existe", self.avisos_mostrados.pop()[1])
+
+    def test_restaurar_una_copia_dice_cuantos_avisos_tiene(self):
+        self.app.guardar_aviso({"fecha": agencia.hoy(), "detalle": "", "monto": "10.00"})
+        self.respuestas.append(False)
+        copia = {"fecha": datetime(2026, 10, 1, 9, 30), "clientes": 1, "trabajadoras": 1, "colocaciones": 1,
+                 "avisos": 0, "ruta": "no-se-usa.db"}
+        self.assertFalse(self.app.restaurar_copia(copia))
+        texto = self.avisos_mostrados.pop()[1]
+        self.assertIn("1 asignaciones y 0 avisos", texto)               # la copia
+        self.assertIn("1 avisos", texto.split("Ahora")[1])              # lo que hay ahora
+
+    def test_sin_elegir_un_aviso_corregir_y_eliminar_lo_piden(self):
+        self.app.mostrar(self.pagina)
+        self.assertIsNone(self.pagina.finanzas.corregir())
+        self.pagina.finanzas.eliminar()
+        self.assertEqual([t for t, _ in self.avisos_mostrados], ["Corregir aviso", "Eliminar aviso"])
 
 
 class IgualAlProgramaDeLaTia(unittest.TestCase):

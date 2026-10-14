@@ -62,7 +62,7 @@ class ReintentosDeWindows(unittest.TestCase):
 
 
 class CSVAbiertoEnExcel(unittest.TestCase):
-    NOMBRES = ("Clientes.csv", "Trabajadoras.csv", "Asignaciones.csv", "Areas.csv")
+    NOMBRES = ("Clientes.csv", "Trabajadoras.csv", "Asignaciones.csv", "Areas.csv", "Avisos.csv")
 
     def setUp(self):
         self.temporal = tempfile.TemporaryDirectory(prefix="csv-excel-", **SIN_ERRORES_AL_LIMPIAR)

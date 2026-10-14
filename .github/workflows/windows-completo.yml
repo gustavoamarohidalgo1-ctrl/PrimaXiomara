@@ -1,7 +1,7 @@
 name: Servitotal en Windows como en Servicio Exclusivo
 
 # Las mismas pruebas que pasa el instalador de Servicio Exclusivo (la tía), con los nombres de Servitotal, más la
-# actualización desde la 1.7.2 que tiene instalada la agencia (garantías en días que pasan a meses).
+# actualización desde la 1.7.2 publicada (garantías en días que pasan a meses) y desde la 1.8.0 entregada (sin avisos).
 on:
   push:
     paths:
@@ -44,6 +44,11 @@ jobs:
         if: always()
         shell: pwsh
         run: ./.github/windows/actualizar_desde_172.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe
+
+      - name: Actualizar desde la 1.8.0 entregada con datos (sin avisos)
+        if: always()
+        shell: pwsh
+        run: ./.github/windows/actualizar_desde_180.ps1 -Instalador instaladores/Servitotal-Windows-x64.exe
 
       - name: Actualizar desde una base 1.7.0 con datos
         if: always()
