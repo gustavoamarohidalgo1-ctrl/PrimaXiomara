@@ -113,17 +113,19 @@ Cuatro flujos de GitHub Actions comprueban Servitotal en Windows Server 2022 y 2
 - [windows-python.yml](.github/workflows/windows-python.yml): el paquete de código con Python oficial.
 - [windows-completo.yml](.github/workflows/windows-completo.yml) (también al subir cambios del programa o de los instaladores): las mismas pruebas que pasa el instalador de Servicio Exclusivo (asistente con clics y en silencio, recorrido completo con impresión en Word y PDF, ocho actualizaciones seguidas con el antivirus encendido, cuentas estándar con tildes, pantallas al 100 %, 125 % y 150 %, EXE de Crear_EXE.bat y doble clic con SmartScreen), más la actualización desde la 1.7.2 publicada con garantías en días.
 
-Servitotal 1.8.0 (rama `prueba-1.8.0`, commit `517d7cb`) pasó los 46 trabajos de los cuatro flujos con este mismo instalador (SHA-256 `17435037c577e3c0012109197eba81b13ac344ecbf6f46154c959922a0d6c7fc`):
+Servitotal 1.9.0 (rama `prueba-1.9.0`, commits `389b2d6` y `c39bae0`, que solo corrige una prueba) pasó los 47 trabajos de los cuatro flujos con este mismo instalador (SHA-256 `fd56008efee9016525e744f8dc628cc797e9141d3da58ece24b60e0911db7ca5`):
 
-- [Todas las pruebas](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870125339) (392) con Python 3.8 a 3.14 y con el Python incluido en el instalador.
-- [Instalador y ZIP portable](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870115497): sobre la 1.7.1 publicada, con clics y con la 1.7.1 abierta: avisó, ofreció Reintentar y, tras cerrarla, terminó; el programa se abrió solo, al frente. Defender actualizado no detectó nada; datos anteriores, entorno de otro Python, ícono anclado antiguo, datos dentro de la instalación anterior y desinstalación conservando los datos.
-- [Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870120580): Python 3.14.7 de python.org abrió dos veces el paquete de código.
-- [Como en Servicio Exclusivo](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/36870155855):
-  - Instalar con ventanas y en silencio, recorrer el programa con datos ficticios en su carpeta de datos e imprimir el contrato en Word y en PDF; negarse a actualizar o desinstalar con el programa abierto; actualizar encima sin tocar `agencia.db`; desinstalar conservando los datos.
-  - Actualizar desde la 1.7.2 publicada con datos creados por la propia 1.7.2: copia previa, 30 días → «1 mes», 45 días → «2 meses», el contrato firmado intacto y el programa abre desde su acceso sin avisos de error. También desde una base 1.7.0.
-  - Ocho actualizaciones seguidas con la protección en tiempo real encendida: todas completas, de 5 a 10 segundos.
-  - Cuentas estándar «José Peña» y «Prueba Servitotal»; pantallas al 100 %, 125 % y 150 % sin botones cortados; `Iniciar.bat` y el EXE de `Crear_EXE.bat`.
-  - Recibido «por WhatsApp» (marcado como descargado de Internet) y abierto con doble clic con SmartScreen y el antivirus en la nube: el asistente apareció a los 9 a 12 segundos, como la 1.7.2 publicada (14 a 17 s).
+- [Todas las pruebas](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/38603340690) (405) con Python 3.8 a 3.14 y con el Python incluido en el instalador.
+- [Instalador y ZIP portable](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/38604662512): sobre la 1.7.1 publicada, con clics y con la 1.7.1 abierta: avisó, ofreció Reintentar y, tras cerrarla, terminó; el programa se abrió solo, al frente. Defender actualizado no detectó nada en el instalador, en lo instalado ni en el ZIP; datos anteriores, entorno de otro Python, ícono anclado antiguo, datos dentro de la instalación anterior y desinstalación conservando los datos.
+- [Python oficial](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/38603334609): Python 3.14.7 de python.org abrió dos veces el paquete de código.
+- [Como en Servicio Exclusivo](https://github.com/gustavoamarohidalgo1-ctrl/PrimaXiomara/actions/runs/38604662180):
+  - Instalar con ventanas y en silencio, recorrer el programa con datos ficticios en su carpeta de datos (también anotar avisos y ver las finanzas del día) e imprimir el contrato en Word y en PDF; negarse a actualizar o desinstalar con el programa abierto; actualizar encima sin tocar `agencia.db`; desinstalar conservando los datos.
+  - Actualizar desde la 1.8.0 entregada con datos creados por la propia 1.8.0: copia previa con los mismos datos, la tabla de avisos agregada y todo lo demás igual fila por fila. Desde la 1.7.2 publicada: 30 días → «1 mes», 45 días → «2 meses» y el contrato firmado intacto. También desde una base 1.7.0.
+  - Ocho actualizaciones seguidas con la protección en tiempo real encendida: todas completas.
+  - Cuentas estándar «José Peña» y «Prueba Servitotal»; pantallas al 100 % (las cifras de Ganancias de dos en dos), 125 % y 150 % sin botones cortados; `Iniciar.bat` y el EXE de `Crear_EXE.bat`.
+  - Recibido «por WhatsApp» y abierto con doble clic con SmartScreen y el antivirus en la nube: el asistente apareció a los 8 a 13 segundos, como la 1.7.2 publicada.
+
+En las máquinas de GitHub, `Update-MpSignature` llegó a detener el servicio de Defender y la prueba tomaba ese error («CmdTool: Failed with hr = 0x800106ba») como una amenaza. Ahora la prueba actualiza las firmas con `MpCmdRun -SignatureUpdate`, vuelve a encender el servicio si se detuvo y solo cuenta como amenaza lo que Defender detecta.
 
 Los scripts [verificar_windows.py](instaladores/construccion/verificar_windows.py), [verificar_portable_windows.py](instaladores/construccion/verificar_portable_windows.py) y los de [.github/windows](.github/windows) modifican accesos, registro, cuentas y Escritorio del usuario de prueba; están destinados a un Windows de pruebas efímero. Ninguna prueba reproduce otro antivirus (McAfee, Avast...) ni el Control inteligente de aplicaciones del equipo de una usuaria.
 
